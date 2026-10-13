@@ -19,6 +19,7 @@ import { NotificationsModule } from './notifications/notifications.module';
 import { WebhooksModule } from './webhooks/webhooks.module';
 import { AuditLogsModule } from './audit-logs/audit-logs.module';
 import { HealthModule } from './health/health.module';
+import { DataRetentionModule } from './data-retention/data-retention.module';
 
 @Module({
   imports: [
@@ -58,6 +59,7 @@ import { HealthModule } from './health/health.module';
 
     // System health
     HealthModule,
+    DataRetentionModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: AppThrottlerGuard }],
 })

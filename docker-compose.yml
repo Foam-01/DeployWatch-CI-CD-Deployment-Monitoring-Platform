@@ -1,97 +1,129 @@
-version: '3.9'
-
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: deploywatch_postgres
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-deploywatch}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-deploywatch_secret}
       POSTGRES_DB: ${POSTGRES_DB:-deploywatch}
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./infra/docker/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-deploywatch}"]
-      interval: 10s
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-deploywatch} -d ${POSTGRES_DB:-deploywatch}"]
+      interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 10
 
-  api:
+  migrate:
     build:
-      context: ./apps/api
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: apps/api/Dockerfile
       target: development
-    container_name: deploywatch_api
-    restart: unless-stopped
+    restart: "no"
     depends_on:
       postgres:
         condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-deploywatch}:${POSTGRES_PASSWORD:-deploywatch_secret}@postgres:5432/${POSTGRES_DB:-deploywatch}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:?Set ENCRYPTION_KEY in .env (64 hex chars)}
+    command: ["npm", "run", "db:migrate:prod", "-w", "apps/api"]
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+      target: development
+    restart: unless-stopped
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-deploywatch}:${POSTGRES_PASSWORD:-deploywatch_secret}@postgres:5432/${POSTGRES_DB:-deploywatch}
       JWT_SECRET: ${JWT_SECRET:-change_me_in_production}
       JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-change_me_refresh_in_production}
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-15m}
       JWT_REFRESH_EXPIRES_IN: ${JWT_REFRESH_EXPIRES_IN:-7d}
-      PORT: 3001
+      PORT: 4000
       NODE_ENV: development
-      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3000}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:${WEB_PORT:-3000}}
       GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET:-}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:?Set ENCRYPTION_KEY in .env (64 hex chars)}
+      HEALTH_CHECK_RETENTION_DAYS: ${HEALTH_CHECK_RETENTION_DAYS:-30}
+      WEBHOOK_EVENT_RETENTION_DAYS: ${WEBHOOK_EVENT_RETENTION_DAYS:-90}
       PROCESS_ROLE: api
     ports:
-      - "3001:3001"
+      - "${API_PORT:-4000}:4000"
     volumes:
-      - ./apps/api:/app
+      - .:/app
       - /app/node_modules
-    command: npm run start:dev
+    command: ["npm", "run", "start:dev", "-w", "apps/api"]
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:4000/api/v1/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
 
-  # Background jobs (webhook retries, health checks) — no HTTP port.
   worker:
     build:
-      context: ./apps/api
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: apps/api/Dockerfile
       target: development
-    container_name: deploywatch_worker
     restart: unless-stopped
     depends_on:
-      postgres:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-deploywatch}:${POSTGRES_PASSWORD:-deploywatch_secret}@postgres:5432/${POSTGRES_DB:-deploywatch}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:?Set ENCRYPTION_KEY in .env (64 hex chars)}
       JWT_SECRET: ${JWT_SECRET:-change_me_in_production}
       JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-change_me_refresh_in_production}
+      HEALTH_CHECK_RETENTION_DAYS: ${HEALTH_CHECK_RETENTION_DAYS:-30}
+      WEBHOOK_EVENT_RETENTION_DAYS: ${WEBHOOK_EVENT_RETENTION_DAYS:-90}
       NODE_ENV: development
       PROCESS_ROLE: worker
     volumes:
-      - ./apps/api:/app
+      - .:/app
       - /app/node_modules
-    command: npm run dev:worker
+    command: ["npm", "run", "dev:worker", "-w", "apps/api"]
 
   web:
     build:
-      context: ./apps/web
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: apps/web/Dockerfile
       target: development
-    container_name: deploywatch_web
     restart: unless-stopped
     depends_on:
-      - api
+      api:
+        condition: service_healthy
     environment:
-      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:3001/api/v1}
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:${API_PORT:-4000}/api/v1}
       NEXTAUTH_URL: ${NEXTAUTH_URL:-http://localhost:3000}
       NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:-change_me_in_production}
+      NEXT_DIST_DIR: .next-docker
     ports:
-      - "3000:3000"
+      - "${WEB_PORT:-3000}:3000"
     volumes:
-      - ./apps/web:/app
+      - .:/app
       - /app/node_modules
-      - /app/.next
-    command: npm run dev
+      - /app/apps/web/.next-docker
+    command: ["npm", "run", "dev", "-w", "apps/web"]
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/login').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
 
 volumes:
   postgres_data:

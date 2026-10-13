@@ -1,43 +1,45 @@
-# Multi-stage Dockerfile for DeployWatch Next.js Web
-
-# Stage 1: Base
 FROM node:20-alpine AS base
 WORKDIR /app
 RUN apk add --no-cache libc6-compat
-COPY package*.json ./
+COPY package.json package-lock.json ./
+COPY apps/api/package.json ./apps/api/package.json
+COPY apps/web/package.json ./apps/web/package.json
 
-# Stage 2: Development (used by docker-compose.yml)
 FROM base AS development
 ENV NODE_ENV=development
-RUN npm install
+RUN npm ci --include=dev
 COPY . .
+ENV NEXT_DIST_DIR=.next-docker
 EXPOSE 3000
-CMD ["npm", "run", "dev"]
+CMD ["npm", "run", "dev", "-w", "apps/web"]
 
-# Stage 3: Builder
 FROM base AS builder
+ARG NEXT_PUBLIC_API_URL=http://localhost:4000/api/v1
 ENV NODE_ENV=production
-RUN npm ci
-COPY . .
+ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
 ENV NEXT_TELEMETRY_DISABLED=1
-RUN npm run build
+RUN npm ci --include=dev
+COPY . .
+RUN npm run build -w apps/web
 
-# Stage 4: Production Runner
+FROM base AS production-dependencies
+ENV NODE_ENV=production
+RUN npm ci --omit=dev --workspace=@deploywatch/web --include-workspace-root=false
+
 FROM node:20-alpine AS production
 WORKDIR /app
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
-
-RUN addgroup --system --gid 1001 nodejs
-RUN adduser --system --uid 1001 nextjs
-
-COPY --from=builder /app/public ./public
-COPY --from=builder --chown=nextjs:nodejs /app/.next ./.next
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/package.json ./package.json
-
+ENV PORT=3000
+ENV HOSTNAME=0.0.0.0
+RUN addgroup --system --gid 1001 nodejs && adduser --system --uid 1001 nextjs
+COPY --from=production-dependencies /app/node_modules ./node_modules
+COPY --from=production-dependencies /app/apps/web/package.json ./apps/web/package.json
+COPY --from=production-dependencies /app/apps/api/package.json ./apps/api/package.json
+COPY package.json package-lock.json ./
+COPY --chown=nextjs:nodejs --from=builder /app/apps/web/.next ./apps/web/.next
+COPY --chown=nextjs:nodejs --from=builder /app/apps/web/public ./apps/web/public
+COPY --from=builder /app/apps/web/next.config.js ./apps/web/next.config.js
 USER nextjs
 EXPOSE 3000
-ENV PORT=3000
-
-CMD ["npm", "start"]
+CMD ["npm", "run", "start", "-w", "apps/web"]
