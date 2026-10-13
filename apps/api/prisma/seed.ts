@@ -1,5 +1,11 @@
 import { PrismaClient, MemberRole, ProjectStatus, RepositoryProvider, WorkflowStatus, WorkflowConclusion, DeploymentStatus, ServiceStatus, HealthCheckStatus, IncidentSeverity, IncidentStatus, IncidentEventType, NotificationChannelType } from '@prisma/client';
+import 'dotenv/config';
 import * as bcrypt from 'bcrypt';
+import { SecretBox } from '../src/common/crypto/secret-box';
+
+// Seeded webhook secrets are stored encrypted, exactly like secrets created through the API.
+const secretBox = new SecretBox(process.env.ENCRYPTION_KEY);
+const sealSecret = (value: string) => secretBox.encrypt(value);
 
 const prisma = new PrismaClient();
 
@@ -129,7 +135,7 @@ async function main() {
       externalRepoId: '98273641',
       fullName: 'acme-cloud/storefront-web',
       defaultBranch: 'main',
-      webhookSecret: 'whsec_storefront_demo_secret_2026',
+      webhookSecret: sealSecret('whsec_storefront_demo_secret_2026'),
     },
   });
 
@@ -140,7 +146,7 @@ async function main() {
       externalRepoId: '98273642',
       fullName: 'acme-cloud/payments-engine',
       defaultBranch: 'main',
-      webhookSecret: 'whsec_payments_demo_secret_2026',
+      webhookSecret: sealSecret('whsec_payments_demo_secret_2026'),
     },
   });
 

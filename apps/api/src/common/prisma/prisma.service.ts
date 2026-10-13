@@ -16,9 +16,24 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
     });
   }
 
+  /**
+   * Retries the initial connection: serverless Postgres (e.g. Neon) can take several
+   * seconds to wake from suspend, and a container may start before the database.
+   */
   async onModuleInit() {
-    await this.$connect();
-    this.logger.log('Database connected');
+    const maxAttempts = 5;
+    for (let attempt = 1; ; attempt++) {
+      try {
+        await this.$connect();
+        this.logger.log('Database connected');
+        return;
+      } catch (err) {
+        if (attempt >= maxAttempts) throw err;
+        const delayMs = 1000 * 2 ** (attempt - 1);
+        this.logger.warn(`Database not reachable (attempt ${attempt}/${maxAttempts}); retrying in ${delayMs}ms`);
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
+    }
   }
 
   async onModuleDestroy() {

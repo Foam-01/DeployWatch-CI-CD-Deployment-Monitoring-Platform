@@ -5,6 +5,7 @@ import { AppThrottlerGuard } from './common/guards/app-throttler.guard';
 import { APP_GUARD } from '@nestjs/core';
 import { ScheduleModule } from '@nestjs/schedule';
 import { PrismaModule } from './common/prisma/prisma.module';
+import { CryptoModule } from './common/crypto/crypto.module';
 import { AuthModule } from './auth/auth.module';
 import { OrganizationsModule } from './organizations/organizations.module';
 import { MembershipsModule } from './memberships/memberships.module';
@@ -39,6 +40,7 @@ import { HealthModule } from './health/health.module';
 
     // Database
     PrismaModule,
+    CryptoModule,
 
     // Feature modules
     AuthModule,

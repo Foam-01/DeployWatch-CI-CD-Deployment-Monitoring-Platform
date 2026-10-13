@@ -1,7 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
-import { WebhookEventProcessorService } from './webhook-event-processor.service';
+import { SecretBox } from '../common/crypto/secret-box';
+import { WebhookInboxService } from './webhook-inbox.service';
 import { verifyGitHubSignature } from './github-signature';
 
 export interface GitHubWebhookOptions {
@@ -30,7 +31,8 @@ export class WebhooksService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly processor: WebhookEventProcessorService,
+    private readonly inbox: WebhookInboxService,
+    private readonly secrets: SecretBox,
   ) {}
 
   async handleGitHubEvent(options: GitHubWebhookOptions): Promise<WebhookResult> {
@@ -45,7 +47,7 @@ export class WebhooksService {
 
     // 2. Unknown repository or one without a secret cannot be verified: treat exactly
     //    like a bad signature so callers cannot probe which IDs exist.
-    if (!repository?.webhookSecret || !verifyGitHubSignature(rawBody, signature, repository.webhookSecret)) {
+    if (!repository?.webhookSecret || !verifyGitHubSignature(rawBody, signature, this.secrets.decrypt(repository.webhookSecret))) {
       throw new InvalidWebhookSignatureError();
     }
 
@@ -67,8 +69,7 @@ export class WebhooksService {
           eventType,
           payload: payload as Prisma.InputJsonValue,
           signature,
-          processingStatus: 'PROCESSING',
-          attemptCount: 1,
+          processingStatus: 'PENDING',
         },
       });
       eventId = event.id;
@@ -79,23 +80,10 @@ export class WebhooksService {
       throw err;
     }
 
-    // 4. Process synchronously for the MVP. Failures are recorded on the inbox row so
-    //    they can be retried later without asking GitHub to redeliver.
-    try {
-      await this.processor.process(eventType, payload, repository);
-      await this.prisma.webhookEvent.update({
-        where: { id: eventId },
-        data: { processingStatus: 'PROCESSED', processedAt: new Date() },
-      });
-      return 'processed';
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      this.logger.error(`Failed to process webhook event ${eventId}: ${message}`);
-      await this.prisma.webhookEvent.update({
-        where: { id: eventId },
-        data: { processingStatus: 'FAILED', errorMsg: message.slice(0, 1000) },
-      });
-      return 'failed';
-    }
+    // 4. The event is durable now, so GitHub can be acknowledged whatever happens next.
+    //    Process it immediately; on failure (or if this process dies here) the worker
+    //    retries it from the inbox with backoff.
+    const result = await this.inbox.processNow(eventId);
+    return result === 'failed' ? 'failed' : 'processed';
   }
 }

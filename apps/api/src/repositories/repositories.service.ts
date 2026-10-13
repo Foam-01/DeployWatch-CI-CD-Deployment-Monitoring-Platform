@@ -3,6 +3,7 @@ import { randomBytes } from 'crypto';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { RepositoryProvider } from '@prisma/client';
 import { CreateRepositoryDto } from './dto/create-repository.dto';
+import { SecretBox } from '../common/crypto/secret-box';
 
 /** Columns safe to return to clients — never includes webhook secrets or tokens. */
 export const PUBLIC_REPOSITORY_SELECT = {
@@ -18,7 +19,10 @@ export const PUBLIC_REPOSITORY_SELECT = {
 
 @Injectable()
 export class RepositoriesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly secrets: SecretBox,
+  ) {}
 
   private async assertProjectInOrg(projectId: string, organizationId: string) {
     const project = await this.prisma.project.findFirst({ where: { id: projectId, organizationId } });
@@ -58,7 +62,7 @@ export class RepositoriesService {
         provider: RepositoryProvider.GITHUB,
         externalRepoId: dto.externalRepoId,
         defaultBranch: dto.defaultBranch || 'main',
-        webhookSecret,
+        webhookSecret: this.secrets.encrypt(webhookSecret),
       },
       select: PUBLIC_REPOSITORY_SELECT,
     });

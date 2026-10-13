@@ -37,8 +37,30 @@ services:
       NODE_ENV: production
       CORS_ORIGIN: ${CORS_ORIGIN}
       GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}
+      PROCESS_ROLE: api
     expose:
       - "3001"
+
+  # Exactly one worker runs schedulers; API replicas run with PROCESS_ROLE=api.
+  worker:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+      target: production
+    container_name: deploywatch_worker_prod
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      NODE_ENV: production
+      PROCESS_ROLE: worker
+    command: ["npm", "run", "start:worker"]
 
   web:
     build:

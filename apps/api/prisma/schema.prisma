@@ -473,11 +473,16 @@ model WebhookEvent {
   processingStatus WebhookProcessingStatus @default(PENDING) @map("processing_status")
   errorMsg         String?                 @map("error_msg")
   attemptCount     Int                     @default(0) @map("attempt_count")
+  /// When a FAILED event becomes eligible for retry; null once retries are exhausted.
+  nextAttemptAt    DateTime?               @map("next_attempt_at") @db.Timestamptz
+  /// Set when a worker claims the event; lets a crashed worker's claim expire.
+  lockedAt         DateTime?               @map("locked_at") @db.Timestamptz
 
   organization Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
 
   @@unique([provider, deliveryId])
   @@index([processingStatus, receivedAt(sort: Asc)])
+  @@index([processingStatus, nextAttemptAt])
   @@index([organizationId, receivedAt(sort: Desc)])
   @@map("webhook_events")
 }

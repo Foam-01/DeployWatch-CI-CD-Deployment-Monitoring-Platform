@@ -8,6 +8,7 @@ import * as request from 'supertest';
 import { AppModule } from '../../src/app.module';
 import { APP_OPTIONS, configureApp } from '../../src/app.setup';
 import { PrismaService } from '../../src/common/prisma/prisma.service';
+import { SecretBox } from '../../src/common/crypto/secret-box';
 import { ThrottlerStorage, ThrottlerStorageService } from '@nestjs/throttler';
 
 export const API = '/api/v1';
@@ -81,7 +82,7 @@ export async function createOrgFixture(prisma: PrismaService): Promise<TestOrg> 
       provider: 'GITHUB',
       externalRepoId: String(Date.now() + counter++),
       fullName: `acme/${unique('repo')}`,
-      webhookSecret,
+      webhookSecret: new SecretBox(process.env.ENCRYPTION_KEY).encrypt(webhookSecret),
     },
   });
   return { orgId: org.id, projectId: project.id, environmentId: env.id, repositoryId: repo.id, webhookSecret };

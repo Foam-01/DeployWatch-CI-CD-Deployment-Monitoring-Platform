@@ -5,6 +5,7 @@ import { ConfigService } from '@nestjs/config';
 import { HealthCheckStatus, Service } from '@prisma/client';
 import { evaluateHealth } from './health-state';
 import { safeHttpGet, TimeoutError } from './ssrf-guard';
+import { runsBackgroundJobs } from '../common/process-role';
 
 @Injectable()
 export class HealthCheckSchedulerService {
@@ -24,6 +25,7 @@ export class HealthCheckSchedulerService {
    */
   @Cron('*/30 * * * * *')
   async runHealthChecks() {
+    if (!runsBackgroundJobs()) return;
     if (this.running) {
       this.logger.debug('Health check run already in progress, skipping.');
       return;

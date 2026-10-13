@@ -40,12 +40,37 @@ services:
       NODE_ENV: development
       CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3000}
       GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET:-}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:?Set ENCRYPTION_KEY in .env (64 hex chars)}
+      PROCESS_ROLE: api
     ports:
       - "3001:3001"
     volumes:
       - ./apps/api:/app
       - /app/node_modules
     command: npm run start:dev
+
+  # Background jobs (webhook retries, health checks) — no HTTP port.
+  worker:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+      target: development
+    container_name: deploywatch_worker
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-deploywatch}:${POSTGRES_PASSWORD:-deploywatch_secret}@postgres:5432/${POSTGRES_DB:-deploywatch}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:?Set ENCRYPTION_KEY in .env (64 hex chars)}
+      JWT_SECRET: ${JWT_SECRET:-change_me_in_production}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-change_me_refresh_in_production}
+      NODE_ENV: development
+      PROCESS_ROLE: worker
+    volumes:
+      - ./apps/api:/app
+      - /app/node_modules
+    command: npm run dev:worker
 
   web:
     build:

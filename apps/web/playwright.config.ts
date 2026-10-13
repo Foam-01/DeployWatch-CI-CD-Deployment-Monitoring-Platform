@@ -8,6 +8,8 @@ import { defineConfig, devices } from '@playwright/test';
 const TEST_DATABASE_URL =
   process.env.TEST_DATABASE_URL ?? 'postgresql://test:test@localhost:5433/deploywatch_test';
 const API_PORT = 4100;
+/** Fixed, publicly known key — test data only. Must match global-setup. */
+export const E2E_ENCRYPTION_KEY = '000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f';
 const WEB_PORT = 3100;
 
 export default defineConfig({
@@ -53,6 +55,7 @@ export default defineConfig({
         JWT_SECRET: 'e2e_jwt_secret',
         JWT_REFRESH_SECRET: 'e2e_jwt_refresh_secret',
         NODE_ENV: 'test',
+        ENCRYPTION_KEY: E2E_ENCRYPTION_KEY,
       },
     },
     {
