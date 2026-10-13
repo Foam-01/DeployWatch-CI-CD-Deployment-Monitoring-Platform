@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { CircleCheck, TriangleAlert } from 'lucide-react';
 import { useEffect } from 'react';
 import {
   EmptyState,
@@ -45,14 +46,16 @@ export default function DashboardPage() {
     <>
       <PageHeader title="Overview" description="Last 30 days across all projects. Refreshes every 30 seconds." />
 
+      <SystemStatus summary={summary} />
+
       <section className="stat-grid" aria-label="Summary metrics">
         <StatCard label="Active projects" value={summary.totalProjects} />
         <StatCard label="Successful runs" value={summary.successfulRuns} tone="success" />
         <StatCard label="Failed runs" value={summary.failedRuns} tone={summary.failedRuns ? 'error' : undefined} />
         <StatCard
-          label="Deployment success rate"
+          label="Deploy success"
           value={summary.deploymentSuccessRate === null ? '—' : `${summary.deploymentSuccessRate}%`}
-          hint="Finished deploys, last 30 days"
+          hint="of finished deploys"
         />
         <StatCard
           label="Services"
@@ -149,5 +152,46 @@ export default function DashboardPage() {
         </section>
       </div>
     </>
+  );
+}
+
+/** One-line answer to "is anything broken right now?", shown before any metric. */
+function SystemStatus({ summary }: { summary: DashboardOverview['summary'] }) {
+  const problems: React.ReactNode[] = [];
+  if (summary.services.down) {
+    problems.push(
+      <Link key="down" href="/services">
+        {summary.services.down} service{summary.services.down > 1 ? 's' : ''} down
+      </Link>,
+    );
+  }
+  if (summary.services.degraded) {
+    problems.push(
+      <Link key="degraded" href="/services">
+        {summary.services.degraded} degraded
+      </Link>,
+    );
+  }
+  if (summary.openIncidents) {
+    problems.push(
+      <Link key="incidents" href="/incidents?status=OPEN">
+        {summary.openIncidents} open incident{summary.openIncidents > 1 ? 's' : ''}
+      </Link>,
+    );
+  }
+
+  const ok = problems.length === 0;
+  return (
+    <section className={`system-status ${ok ? 'is-ok' : 'is-bad'}`} role="status" aria-label="System status">
+      {ok ? <CircleCheck size={18} aria-hidden /> : <TriangleAlert size={18} aria-hidden />}
+      <span>
+        {ok
+          ? 'All monitored services are operational'
+          : problems.flatMap((p, i) => (i === 0 ? [p] : [<span key={`sep-${i}`}> · </span>, p]))}
+      </span>
+      <span className="system-status-meta">
+        {summary.failedRuns} failed run{summary.failedRuns === 1 ? '' : 's'} in 30 days
+      </span>
+    </section>
   );
 }

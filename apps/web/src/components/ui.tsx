@@ -152,7 +152,7 @@ export function StatCard({
   tone?: Tone;
 }) {
   return (
-    <div className={`card stat ${tone ? `stat-${tone}` : ''}`}>
+    <div className={`stat ${tone ? `stat-${tone}` : ''}`}>
       <p className="stat-label">{label}</p>
       <p className="stat-value">{value}</p>
       {hint && <p className="muted small">{hint}</p>}

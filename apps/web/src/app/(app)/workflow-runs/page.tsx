@@ -80,9 +80,8 @@ export default function WorkflowRunsPage() {
               <tr>
                 <th scope="col">Status</th>
                 <th scope="col">Workflow</th>
-                <th scope="col">Project</th>
+                <th scope="col">Project / Event</th>
                 <th scope="col">Branch / Commit</th>
-                <th scope="col">Event</th>
                 <th scope="col">Duration</th>
                 <th scope="col">Started</th>
                 <th scope="col">
@@ -102,12 +101,14 @@ export default function WorkflowRunsPage() {
                     </Link>
                     {r.commitMessage && <div className="muted small truncate">{r.commitMessage}</div>}
                   </td>
-                  <td className="small">{r.repository?.project.name}</td>
+                  <td className="small">
+                    {r.repository?.project.name}
+                    <div className="muted">{r.eventType ?? '—'}</div>
+                  </td>
                   <td className="mono small">
                     {r.branch ?? '—'}
                     <div className="muted">{shortSha(r.commitSha)}</div>
                   </td>
-                  <td className="small">{r.eventType ?? '—'}</td>
                   <td>{formatDuration(r.durationSeconds)}</td>
                   <td className="muted small">
                     <TimeAgo iso={r.startedAt ?? r.createdAt} />
