@@ -1,0 +1,508 @@
+// DeployWatch — Full Prisma Schema
+// PostgreSQL + Prisma ORM
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Enums
+// ──────────────────────────────────────────────────────────────────────────────
+
+enum MemberRole {
+  OWNER
+  ADMIN
+  MEMBER
+  VIEWER
+}
+
+enum ProjectStatus {
+  ACTIVE
+  ARCHIVED
+}
+
+enum RepositoryProvider {
+  GITHUB
+}
+
+enum WorkflowStatus {
+  QUEUED
+  IN_PROGRESS
+  COMPLETED
+}
+
+enum WorkflowConclusion {
+  SUCCESS
+  FAILURE
+  CANCELLED
+  SKIPPED
+  TIMED_OUT
+  ACTION_REQUIRED
+}
+
+enum DeploymentStatus {
+  QUEUED
+  IN_PROGRESS
+  SUCCESS
+  FAILURE
+  CANCELLED
+  SKIPPED
+}
+
+enum ServiceStatus {
+  HEALTHY
+  DEGRADED
+  DOWN
+  UNKNOWN
+}
+
+enum HealthCheckStatus {
+  PASS
+  FAIL
+  TIMEOUT
+}
+
+enum IncidentSeverity {
+  CRITICAL
+  HIGH
+  MEDIUM
+  LOW
+}
+
+enum IncidentStatus {
+  OPEN
+  ACKNOWLEDGED
+  INVESTIGATING
+  RESOLVED
+}
+
+enum IncidentEventType {
+  OPENED
+  ACKNOWLEDGED
+  INVESTIGATING
+  RESOLVED
+  REOPENED
+  COMMENT
+}
+
+enum AlertEventType {
+  WORKFLOW_FAILURE
+  DEPLOYMENT_FAILURE
+  SERVICE_DOWN
+  SERVICE_RECOVERED
+  INCIDENT_OPENED
+  INCIDENT_RESOLVED
+}
+
+enum NotificationChannelType {
+  EMAIL
+  SLACK
+  WEBHOOK
+  IN_APP
+}
+
+enum NotificationStatus {
+  PENDING
+  SENT
+  FAILED
+}
+
+enum WebhookProcessingStatus {
+  PENDING
+  PROCESSING
+  PROCESSED
+  FAILED
+  DUPLICATE
+}
+
+enum AuditAction {
+  CREATE
+  UPDATE
+  DELETE
+  ARCHIVE
+  INVITE
+  REMOVE
+  LOGIN
+  LOGOUT
+  REGISTER
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Core Identity
+// ──────────────────────────────────────────────────────────────────────────────
+
+model User {
+  id           String   @id @default(uuid()) @db.Uuid
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  name         String
+  avatarUrl    String?  @map("avatar_url")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  memberships          Membership[]
+  incidentEvents       IncidentEvent[]
+  auditLogs            AuditLog[]
+  notificationChannels NotificationChannel[]
+
+  @@map("users")
+}
+
+model Organization {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String
+  slug      String   @unique
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  memberships          Membership[]
+  projects             Project[]
+  notificationChannels NotificationChannel[]
+  webhookEvents        WebhookEvent[]
+  auditLogs            AuditLog[]
+
+  @@map("organizations")
+}
+
+model Membership {
+  id             String      @id @default(uuid()) @db.Uuid
+  organizationId String      @map("organization_id") @db.Uuid
+  userId         String      @map("user_id") @db.Uuid
+  role           MemberRole
+  createdAt      DateTime    @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime    @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, userId])
+  @@index([userId])
+  @@map("memberships")
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Projects & Repositories
+// ──────────────────────────────────────────────────────────────────────────────
+
+model Project {
+  id             String        @id @default(uuid()) @db.Uuid
+  organizationId String        @map("organization_id") @db.Uuid
+  name           String
+  slug           String
+  description    String?
+  status         ProjectStatus @default(ACTIVE)
+  createdAt      DateTime      @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime      @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  repositories Repository[]
+  environments Environment[]
+  services     Service[]
+  deployments  Deployment[]
+  alertRules   AlertRule[]
+
+  @@unique([organizationId, slug])
+  @@index([organizationId, status])
+  @@map("projects")
+}
+
+model Repository {
+  id               String             @id @default(uuid()) @db.Uuid
+  projectId        String             @map("project_id") @db.Uuid
+  provider         RepositoryProvider @default(GITHUB)
+  externalRepoId   String             @map("external_repo_id")
+  fullName         String             @map("full_name")
+  defaultBranch    String             @default("main") @map("default_branch")
+  webhookId        String?            @map("webhook_id")
+  webhookSecret    String?            @map("webhook_secret")
+  integrationToken String?            @map("integration_token")
+  createdAt        DateTime           @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt        DateTime           @updatedAt @map("updated_at") @db.Timestamptz
+
+  project      Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  workflowRuns WorkflowRun[]
+
+  @@unique([provider, externalRepoId])
+  @@index([projectId])
+  @@map("repositories")
+}
+
+model Environment {
+  id           String   @id @default(uuid()) @db.Uuid
+  projectId    String   @map("project_id") @db.Uuid
+  name         String
+  slug         String
+  isProduction Boolean  @default(false) @map("is_production")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  project     Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  deployments Deployment[]
+  services    Service[]
+
+  @@unique([projectId, slug])
+  @@map("environments")
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// CI/CD Runs & Deployments
+// ──────────────────────────────────────────────────────────────────────────────
+
+model WorkflowRun {
+  id            String              @id @default(uuid()) @db.Uuid
+  repositoryId  String              @map("repository_id") @db.Uuid
+  externalRunId BigInt              @map("external_run_id")
+  runNumber     Int                 @map("run_number")
+  workflowName  String              @map("workflow_name")
+  status        WorkflowStatus
+  conclusion    WorkflowConclusion?
+  branch        String?
+  commitSha     String              @map("commit_sha")
+  commitMessage String?             @map("commit_message")
+  triggeredBy   String?             @map("triggered_by")
+  eventType     String?             @map("event_type")
+  htmlUrl       String              @map("html_url")
+  startedAt     DateTime?           @map("started_at") @db.Timestamptz
+  completedAt   DateTime?           @map("completed_at") @db.Timestamptz
+  createdAt     DateTime            @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt     DateTime            @updatedAt @map("updated_at") @db.Timestamptz
+
+  repository  Repository   @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  deployments Deployment[]
+
+  @@unique([repositoryId, externalRunId])
+  @@index([repositoryId, createdAt(sort: Desc)])
+  @@index([status, createdAt(sort: Desc)])
+  @@index([conclusion, createdAt(sort: Desc)])
+  @@map("workflow_runs")
+}
+
+model Deployment {
+  id                   String           @id @default(uuid()) @db.Uuid
+  projectId            String           @map("project_id") @db.Uuid
+  environmentId        String           @map("environment_id") @db.Uuid
+  workflowRunId        String?          @map("workflow_run_id") @db.Uuid
+  externalDeploymentId String?          @map("external_deployment_id")
+  status               DeploymentStatus @default(QUEUED)
+  commitSha            String           @map("commit_sha")
+  commitMessage        String?          @map("commit_message")
+  triggeredBy          String?          @map("triggered_by")
+  errorSummary         String?          @map("error_summary")
+  externalUrl          String?          @map("external_url")
+  startedAt            DateTime?        @map("started_at") @db.Timestamptz
+  completedAt          DateTime?        @map("completed_at") @db.Timestamptz
+  createdAt            DateTime         @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt            DateTime         @updatedAt @map("updated_at") @db.Timestamptz
+
+  project     Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  environment Environment  @relation(fields: [environmentId], references: [id], onDelete: Restrict)
+  workflowRun WorkflowRun? @relation(fields: [workflowRunId], references: [id], onDelete: SetNull)
+
+  @@index([projectId, createdAt(sort: Desc)])
+  @@index([environmentId, createdAt(sort: Desc)])
+  @@index([status, createdAt(sort: Desc)])
+  @@map("deployments")
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Services & Health Checks
+// ──────────────────────────────────────────────────────────────────────────────
+
+model Service {
+  id                    String        @id @default(uuid()) @db.Uuid
+  projectId             String        @map("project_id") @db.Uuid
+  environmentId         String?       @map("environment_id") @db.Uuid
+  name                  String
+  healthUrl             String        @map("health_url")
+  intervalSeconds       Int           @default(60) @map("interval_seconds")
+  timeoutMs             Int           @default(5000) @map("timeout_ms")
+  expectedHttpStatus    Int           @default(200) @map("expected_http_status")
+  failureThreshold      Int           @default(3) @map("failure_threshold")
+  successThreshold      Int           @default(2) @map("success_threshold")
+  currentStatus         ServiceStatus @default(UNKNOWN) @map("current_status")
+  consecutiveFailures   Int           @default(0) @map("consecutive_failures")
+  consecutiveSuccesses  Int           @default(0) @map("consecutive_successes")
+  lastCheckedAt         DateTime?     @map("last_checked_at") @db.Timestamptz
+  enabled               Boolean       @default(true)
+  createdAt             DateTime      @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt             DateTime      @updatedAt @map("updated_at") @db.Timestamptz
+
+  project      Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  environment  Environment?  @relation(fields: [environmentId], references: [id], onDelete: SetNull)
+  healthChecks HealthCheck[]
+  incidents    Incident[]
+
+  @@index([projectId])
+  @@index([enabled, currentStatus])
+  @@map("services")
+}
+
+model HealthCheck {
+  id         String            @id @default(uuid()) @db.Uuid
+  serviceId  String            @map("service_id") @db.Uuid
+  status     HealthCheckStatus
+  httpStatus Int?              @map("http_status")
+  latencyMs  Int?              @map("latency_ms")
+  errorMsg   String?           @map("error_msg")
+  checkedAt  DateTime          @default(now()) @map("checked_at") @db.Timestamptz
+
+  service Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+
+  @@index([serviceId, checkedAt(sort: Desc)])
+  @@map("health_checks")
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Incidents
+// ──────────────────────────────────────────────────────────────────────────────
+
+model Incident {
+  id          String           @id @default(uuid()) @db.Uuid
+  serviceId   String?          @map("service_id") @db.Uuid
+  title       String
+  description String?
+  severity    IncidentSeverity @default(HIGH)
+  status      IncidentStatus   @default(OPEN)
+  openedAt    DateTime         @default(now()) @map("opened_at") @db.Timestamptz
+  resolvedAt  DateTime?        @map("resolved_at") @db.Timestamptz
+  createdAt   DateTime         @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime         @updatedAt @map("updated_at") @db.Timestamptz
+
+  service Service?        @relation(fields: [serviceId], references: [id], onDelete: SetNull)
+  events  IncidentEvent[]
+
+  @@index([status, createdAt(sort: Desc)])
+  @@index([serviceId, status])
+  @@map("incidents")
+}
+
+model IncidentEvent {
+  id          String            @id @default(uuid()) @db.Uuid
+  incidentId  String            @map("incident_id") @db.Uuid
+  eventType   IncidentEventType @map("event_type")
+  message     String?
+  actorUserId String?           @map("actor_user_id") @db.Uuid
+  createdAt   DateTime          @default(now()) @map("created_at") @db.Timestamptz
+
+  incident  Incident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  actorUser User?    @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([incidentId, createdAt(sort: Desc)])
+  @@map("incident_events")
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Alert Rules & Notifications
+// ──────────────────────────────────────────────────────────────────────────────
+
+model AlertRule {
+  id        String         @id @default(uuid()) @db.Uuid
+  projectId String         @map("project_id") @db.Uuid
+  eventType AlertEventType @map("event_type")
+  enabled   Boolean        @default(true)
+  config    Json           @default("{}")
+  createdAt DateTime       @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime       @updatedAt @map("updated_at") @db.Timestamptz
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, enabled])
+  @@map("alert_rules")
+}
+
+model NotificationChannel {
+  id             String                  @id @default(uuid()) @db.Uuid
+  organizationId String                  @map("organization_id") @db.Uuid
+  createdById    String?                 @map("created_by_id") @db.Uuid
+  name           String
+  type           NotificationChannelType
+  configEncrypted String                @map("config_encrypted")
+  enabled        Boolean                 @default(true)
+  createdAt      DateTime                @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime                @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization   Organization             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy      User?                    @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  deliveries     NotificationDelivery[]
+
+  @@index([organizationId, enabled])
+  @@map("notification_channels")
+}
+
+model NotificationDelivery {
+  id             String             @id @default(uuid()) @db.Uuid
+  channelId      String             @map("channel_id") @db.Uuid
+  idempotencyKey String             @unique @map("idempotency_key")
+  eventKey       String             @map("event_key")
+  payload        Json
+  status         NotificationStatus @default(PENDING)
+  attemptCount   Int                @default(0) @map("attempt_count")
+  lastAttemptAt  DateTime?          @map("last_attempt_at") @db.Timestamptz
+  sentAt         DateTime?          @map("sent_at") @db.Timestamptz
+  errorMsg       String?            @map("error_msg")
+  createdAt      DateTime           @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime           @updatedAt @map("updated_at") @db.Timestamptz
+
+  channel NotificationChannel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+
+  @@index([channelId, status])
+  @@index([status, createdAt(sort: Desc)])
+  @@map("notification_deliveries")
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Webhook Event Inbox (Deduplication & Async Processing)
+// ──────────────────────────────────────────────────────────────────────────────
+
+model WebhookEvent {
+  id               String                  @id @default(uuid()) @db.Uuid
+  organizationId   String?                 @map("organization_id") @db.Uuid
+  repositoryId     String?                 @map("repository_id") @db.Uuid
+  provider         RepositoryProvider
+  deliveryId       String                  @map("delivery_id")
+  eventType        String                  @map("event_type")
+  payload          Json
+  signature        String?
+  receivedAt       DateTime                @default(now()) @map("received_at") @db.Timestamptz
+  processedAt      DateTime?               @map("processed_at") @db.Timestamptz
+  processingStatus WebhookProcessingStatus @default(PENDING) @map("processing_status")
+  errorMsg         String?                 @map("error_msg")
+  attemptCount     Int                     @default(0) @map("attempt_count")
+
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+
+  @@unique([provider, deliveryId])
+  @@index([processingStatus, receivedAt(sort: Asc)])
+  @@index([organizationId, receivedAt(sort: Desc)])
+  @@map("webhook_events")
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Audit Logs
+// ──────────────────────────────────────────────────────────────────────────────
+
+model AuditLog {
+  id             String      @id @default(uuid()) @db.Uuid
+  organizationId String?     @map("organization_id") @db.Uuid
+  actorUserId    String?     @map("actor_user_id") @db.Uuid
+  action         AuditAction
+  resourceType   String      @map("resource_type")
+  resourceId     String?     @map("resource_id")
+  metadata       Json        @default("{}")
+  ipAddress      String?     @map("ip_address")
+  userAgent      String?     @map("user_agent")
+  createdAt      DateTime    @default(now()) @map("created_at") @db.Timestamptz
+
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  actorUser    User?         @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, createdAt(sort: Desc)])
+  @@index([actorUserId, createdAt(sort: Desc)])
+  @@index([resourceType, resourceId])
+  @@map("audit_logs")
+}
