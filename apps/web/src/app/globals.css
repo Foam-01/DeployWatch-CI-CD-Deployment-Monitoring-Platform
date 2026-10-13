@@ -235,6 +235,10 @@ code {
   flex-direction: column;
   gap: 20px;
 }
+/* Flex children default to min-width:auto, which lets wide tables push the page sideways. */
+.content > * {
+  min-width: 0;
+}
 
 .icon-btn {
   background: none;
@@ -426,6 +430,8 @@ a.list-row:hover {
 .table-wrap {
   overflow-x: auto;
   padding: 0;
+  /* Contain absolutely positioned children (e.g. .sr-only headers) inside the scroll box. */
+  position: relative;
 }
 .table {
   width: 100%;

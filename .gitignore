@@ -12,3 +12,7 @@ playwright-report/
 test-results/
 *.tsbuildinfo
 .claude/
+.next-e2e/
+apps/web/e2e/.auth/
+apps/web/test-results/
+apps/web/playwright-report/
