@@ -254,6 +254,13 @@ code {
   color: var(--text);
 }
 
+.nav-section {
+  margin: 20px 8px 6px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--text-3);
+}
+
 .main-col {
   flex: 1;
   min-width: 0;
@@ -564,7 +571,18 @@ code {
 
 .list {
   list-style: none;
-  margin: -12px -16px -16px;
+  margin: 0 -16px -16px;
+  border-top: 1px solid var(--line);
+}
+/* Directly under a panel header the list starts flush, without a second rule. */
+.card-head + .list {
+  margin-top: -12px;
+  border-top: none;
+}
+.list-edit {
+  padding: 4px 16px 16px;
+  border-top: 1px solid var(--line);
+  background: var(--surface-sunken);
 }
 .list-row {
   display: flex;
@@ -631,6 +649,9 @@ a.list-row:hover {
   vertical-align: top;
   /* Short values (times, SHAs, branches) stay on one line; the wrapper scrolls instead. */
   white-space: nowrap;
+}
+.table-middle td {
+  vertical-align: middle;
 }
 .table tbody tr:last-child td {
   border-bottom: none;
@@ -903,6 +924,88 @@ summary {
   cursor: pointer;
 }
 
+/* ── Settings ──────────────────────────────────────────── */
+
+.settings-section .form.narrow {
+  margin-top: 4px;
+}
+.notice {
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-sunken);
+  color: var(--text-2);
+}
+.success-text {
+  color: var(--ok);
+}
+.nowrap {
+  white-space: nowrap;
+}
+.form-row-3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.form-actions-start {
+  justify-content: flex-start;
+  align-items: center;
+}
+.inline-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px;
+  margin-top: 16px;
+}
+.inline-form .grow {
+  flex: 1 1 260px;
+}
+.inline-form .full {
+  flex-basis: 100%;
+}
+.checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+}
+.checkbox input {
+  min-height: 0;
+  width: 16px;
+  height: 16px;
+}
+.service-form {
+  margin-top: 0;
+  padding: 12px 0 4px;
+}
+.role-legend {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.actions-cell {
+  text-align: right;
+}
+.action {
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+}
+.action-create {
+  color: var(--ok);
+}
+.action-delete,
+.action-remove {
+  color: var(--fail);
+}
+.action-update {
+  color: var(--accent);
+}
+.setup-steps ol {
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
 /* ── States ────────────────────────────────────────────── */
 
 .state {
@@ -1050,7 +1153,8 @@ summary {
   .content {
     padding: 20px 16px 40px;
   }
-  .form-row {
+  .form-row,
+  .form-row-3 {
     grid-template-columns: 1fr;
   }
   .toolbar input[type='search'] {

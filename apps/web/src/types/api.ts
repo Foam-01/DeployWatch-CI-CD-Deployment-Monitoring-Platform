@@ -160,3 +160,20 @@ export interface DashboardOverview {
   recentRuns: WorkflowRun[];
   recentDeployments: Deployment[];
 }
+
+export interface Member {
+  id: string;
+  role: MemberRole;
+  createdAt: string;
+  user: { id: string; email: string; name: string };
+}
+
+export interface AuditLogEntry {
+  id: string;
+  action: 'CREATE' | 'UPDATE' | 'DELETE' | 'ARCHIVE' | 'INVITE' | 'REMOVE' | 'LOGIN' | 'LOGOUT' | 'REGISTER';
+  resourceType: string;
+  resourceId: string | null;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+  actorUser: { id: string; email: string; name: string } | null;
+}

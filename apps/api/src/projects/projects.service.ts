@@ -72,22 +72,19 @@ export class ProjectsService {
   async create(organizationId: string, dto: CreateProjectDto) {
     const slug = this.generateSlug(dto.name);
 
-    const project = await this.prisma.project.create({
-      data: {
-        organizationId,
-        name: dto.name,
-        slug,
-        description: dto.description,
-      },
-    });
-
-    // Create default environments
-    await this.prisma.environment.createMany({
-      data: [
-        { projectId: project.id, name: 'Development', slug: 'development', isProduction: false },
-        { projectId: project.id, name: 'Staging', slug: 'staging', isProduction: false },
-        { projectId: project.id, name: 'Production', slug: 'production', isProduction: true },
-      ],
+    // Project and its default environments are created together or not at all.
+    const project = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.project.create({
+        data: { organizationId, name: dto.name, slug, description: dto.description },
+      });
+      await tx.environment.createMany({
+        data: [
+          { projectId: created.id, name: 'Development', slug: 'development', isProduction: false },
+          { projectId: created.id, name: 'Staging', slug: 'staging', isProduction: false },
+          { projectId: created.id, name: 'Production', slug: 'production', isProduction: true },
+        ],
+      });
+      return created;
     });
 
     return { data: project };

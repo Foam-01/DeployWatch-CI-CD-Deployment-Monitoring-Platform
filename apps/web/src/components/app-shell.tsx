@@ -8,11 +8,15 @@ import {
   AlertTriangle,
   FolderGit2,
   LayoutDashboard,
+  KeyRound,
   LogOut,
   Menu,
   Rocket,
+  ScrollText,
+  Users,
   Workflow,
   X,
+  type LucideIcon,
 } from 'lucide-react';
 import { useAuth } from '@/lib/auth-context';
 
@@ -23,6 +27,12 @@ const NAV = [
   { href: '/deployments', label: 'Deployments', icon: Rocket },
   { href: '/services', label: 'Services', icon: Activity },
   { href: '/incidents', label: 'Incidents', icon: AlertTriangle },
+];
+
+const SETTINGS_NAV = [
+  { href: '/settings/members', label: 'Members', icon: Users },
+  { href: '/settings/integrations', label: 'Integrations', icon: KeyRound },
+  { href: '/settings/audit-logs', label: 'Audit log', icon: ScrollText },
 ];
 
 export function AppShell({ children }: { children: React.ReactNode }) {
@@ -82,21 +92,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </button>
         </div>
         <nav>
-          {NAV.map(({ href, label, icon: Icon }) => {
-            const active = pathname === href || pathname.startsWith(`${href}/`);
-            return (
-              <Link
-                key={href}
-                href={href}
-                className={`nav-link ${active ? 'active' : ''}`}
-                aria-current={active ? 'page' : undefined}
-                onClick={() => setNavOpen(false)}
-              >
-                <Icon size={18} aria-hidden />
-                {label}
-              </Link>
-            );
-          })}
+          {NAV.map((item) => (
+            <NavLink key={item.href} {...item} pathname={pathname} onNavigate={() => setNavOpen(false)} />
+          ))}
+          <p className="nav-section">Settings</p>
+          {SETTINGS_NAV.map((item) => (
+            <NavLink key={item.href} {...item} pathname={pathname} onNavigate={() => setNavOpen(false)} />
+          ))}
         </nav>
       </aside>
 
@@ -132,5 +134,32 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </main>
       </div>
     </div>
+  );
+}
+
+function NavLink({
+  href,
+  label,
+  icon: Icon,
+  pathname,
+  onNavigate,
+}: {
+  href: string;
+  label: string;
+  icon: LucideIcon;
+  pathname: string;
+  onNavigate: () => void;
+}) {
+  const active = pathname === href || pathname.startsWith(`${href}/`);
+  return (
+    <Link
+      href={href}
+      className={`nav-link ${active ? 'active' : ''}`}
+      aria-current={active ? 'page' : undefined}
+      onClick={onNavigate}
+    >
+      <Icon size={16} aria-hidden />
+      {label}
+    </Link>
   );
 }

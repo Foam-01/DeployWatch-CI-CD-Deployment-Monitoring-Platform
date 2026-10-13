@@ -5,7 +5,7 @@ import { ADMIN_STATE, settled } from './helpers';
 test.skip(!process.env.SCREENSHOTS, 'screenshots only on demand');
 test.use({ storageState: ADMIN_STATE });
 
-for (const path of ['/dashboard', '/workflow-runs', '/incidents']) {
+for (const path of ['/dashboard', '/workflow-runs', '/incidents', '/settings/members', '/settings/audit-logs']) {
   test(`capture ${path}`, async ({ page }, info) => {
     await page.goto(path);
     await settled(page);

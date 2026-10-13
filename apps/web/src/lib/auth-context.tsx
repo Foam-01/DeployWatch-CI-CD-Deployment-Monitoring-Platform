@@ -7,6 +7,8 @@ import type { Me, MemberRole } from '@/types/api';
 interface AuthState {
   user: Me | null;
   role: MemberRole | null;
+  /** Active organization (MVP: the first membership). */
+  orgId: string | null;
   loading: boolean;
   canWrite: boolean;
   canManageIntegrations: boolean;
@@ -66,12 +68,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // MVP: one organization per workspace — the first membership is the active one.
   // These flags only shape the UI; the API enforces the same rules.
   const role = user?.memberships[0]?.role ?? null;
+  const orgId = user?.memberships[0]?.organization.id ?? null;
   const canWrite = role !== null && role !== 'VIEWER';
   const canManageIntegrations = role === 'OWNER' || role === 'ADMIN';
 
   return (
     <AuthContext.Provider
-      value={{ user, role, loading, canWrite, canManageIntegrations, login, register, logout }}
+      value={{ user, role, orgId, loading, canWrite, canManageIntegrations, login, register, logout }}
     >
       {children}
     </AuthContext.Provider>

@@ -48,6 +48,9 @@ export default function ProjectDetailPage({ params }: { params: { id: string } }
         actions={
           <>
             <StatusBadge value={p.status} />
+            <Link href={`/projects/${p.id}/settings`} className="btn">
+              Settings
+            </Link>
             {canWrite && p.status === 'ACTIVE' && (
               <button type="button" className="btn btn-ghost" onClick={() => setConfirmArchive(true)}>
                 Archive
