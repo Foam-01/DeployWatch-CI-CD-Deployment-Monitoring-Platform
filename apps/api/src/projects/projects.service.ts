@@ -1,11 +1,24 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import {
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  InternalServerErrorException,
+  NotFoundException,
+} from '@nestjs/common';
+import { AlertEventType, Prisma } from '@prisma/client';
 import { CreateEnvironmentDto } from './dto/create-environment.dto';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { PUBLIC_REPOSITORY_SELECT } from '../repositories/repositories.service';
 import { CreateProjectDto } from './dto/create-project.dto';
 import { UpdateProjectDto } from './dto/update-project.dto';
 import { ProjectQueryDto } from './dto/project-query.dto';
+import { UpdateServiceDownAlertRuleDto } from './dto/update-service-down-alert-rule.dto';
+import { serviceDownFailureThreshold } from '../common/utils/alert-rule-config';
+
+interface Actor {
+  userId: string;
+  role: string;
+}
 
 @Injectable()
 export class ProjectsService {
@@ -210,6 +223,78 @@ export class ProjectsService {
     }
     await this.prisma.environment.delete({ where: { id: environmentId } });
     return { data: { id: environmentId } };
+  }
+
+  async getServiceDownAlertRule(projectId: string, organizationId: string) {
+    await this.findOne(projectId, organizationId);
+    const rule = await this.prisma.alertRule.findUnique({
+      where: { projectId_eventType: { projectId, eventType: AlertEventType.SERVICE_DOWN } },
+      select: { enabled: true, config: true },
+    });
+    return {
+      data: {
+        enabled: rule?.enabled ?? false,
+        failureThreshold: rule ? this.configuredFailureThreshold(rule.config, rule.enabled) : 3,
+      },
+    };
+  }
+
+  async updateServiceDownAlertRule(
+    projectId: string,
+    organizationId: string,
+    actor: Actor,
+    dto: UpdateServiceDownAlertRuleDto,
+  ) {
+    this.assertAdmin(actor);
+    await this.findOne(projectId, organizationId);
+    const rule = await this.prisma.$transaction(async (tx) => {
+      const updated = await tx.alertRule.upsert({
+        where: { projectId_eventType: { projectId, eventType: AlertEventType.SERVICE_DOWN } },
+        create: {
+          projectId,
+          eventType: AlertEventType.SERVICE_DOWN,
+          enabled: dto.enabled,
+          config: { failureThreshold: dto.failureThreshold },
+        },
+        update: {
+          enabled: dto.enabled,
+          config: { failureThreshold: dto.failureThreshold },
+        },
+      });
+      await tx.auditLog.create({
+        data: {
+          organizationId,
+          actorUserId: actor.userId,
+          action: 'UPDATE',
+          resourceType: 'ALERT_RULE',
+          resourceId: updated.id,
+          metadata: {
+            projectId,
+            eventType: AlertEventType.SERVICE_DOWN,
+            enabled: dto.enabled,
+            failureThreshold: dto.failureThreshold,
+          },
+        },
+      });
+      return updated;
+    });
+    return {
+      data: { enabled: rule.enabled, failureThreshold: this.configuredFailureThreshold(rule.config) },
+    };
+  }
+
+  private configuredFailureThreshold(config: Prisma.JsonValue, enabled = true): number {
+    const threshold = serviceDownFailureThreshold(config);
+    if (threshold === undefined && enabled) {
+      throw new InternalServerErrorException('Stored service-down alert rule has an invalid failure threshold.');
+    }
+    return threshold ?? 3;
+  }
+
+  private assertAdmin(actor: Actor) {
+    if (actor.role !== 'OWNER' && actor.role !== 'ADMIN') {
+      throw new ForbiddenException('Only owners and admins can manage project alert rules.');
+    }
   }
 
   private generateSlug(name: string): string {

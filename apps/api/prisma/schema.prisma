@@ -415,6 +415,7 @@ model AlertRule {
 
   project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
+  @@unique([projectId, eventType])
   @@index([projectId, enabled])
   @@map("alert_rules")
 }

@@ -1,5 +1,5 @@
 import {
-  Controller, Get, Post, Patch, Delete, Param, Body, Query, UseGuards, ParseUUIDPipe,
+  Controller, Get, Post, Patch, Delete, Put, Param, Body, Query, UseGuards, ParseUUIDPipe,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -10,6 +10,7 @@ import { CreateProjectDto } from './dto/create-project.dto';
 import { UpdateProjectDto } from './dto/update-project.dto';
 import { ProjectQueryDto } from './dto/project-query.dto';
 import { CreateEnvironmentDto } from './dto/create-environment.dto';
+import { UpdateServiceDownAlertRuleDto } from './dto/update-service-down-alert-rule.dto';
 import { OrgGuard } from '../common/guards/org.guard';
 
 @ApiTags('projects')
@@ -102,5 +103,26 @@ export class ProjectsController {
   ) {
     assertWritableRole(role);
     return this.projectsService.deleteEnvironment(id, environmentId, organizationId);
+  }
+
+  @Get(':id/alert-rules/service-down')
+  @ApiOperation({ summary: 'Get the project-level service-down failure threshold rule' })
+  getServiceDownAlertRule(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser('organizationId') organizationId: string,
+  ) {
+    return this.projectsService.getServiceDownAlertRule(id, organizationId);
+  }
+
+  @Put(':id/alert-rules/service-down')
+  @ApiOperation({ summary: 'Set or disable the project-level service-down failure threshold override' })
+  updateServiceDownAlertRule(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser('organizationId') organizationId: string,
+    @CurrentUser('sub') userId: string,
+    @CurrentUser('memberRole') role: string,
+    @Body() dto: UpdateServiceDownAlertRuleDto,
+  ) {
+    return this.projectsService.updateServiceDownAlertRule(id, organizationId, { userId, role }, dto);
   }
 }

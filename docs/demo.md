@@ -28,7 +28,9 @@ production data.
 3. **Service health and incidents:** open Services and inspect the healthy Storefront
    Gateway and the down Card Authorization Webhook API. Open the incident to review
    the incident timeline. Seeded service URLs use `httpbin.org`; keep the worker's
-   outbound network access in mind when running the demo.
+   outbound network access in mind when running the demo. In project settings, inspect
+   Alert rules to see how an optional project-wide failure threshold overrides each
+   service's own setting.
 4. **Notifications:** use the bell or Notifications page to inspect seeded alerts.
    Opening an alert marks it read for the current user. Notification read state is
    per-user.

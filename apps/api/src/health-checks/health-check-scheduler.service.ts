@@ -7,6 +7,7 @@ import { evaluateHealth } from './health-state';
 import { safeHttpGet, TimeoutError } from './ssrf-guard';
 import { runsBackgroundJobs } from '../common/process-role';
 import { NotifierService } from '../notifications/notifier.service';
+import { serviceDownFailureThreshold } from '../common/utils/alert-rule-config';
 
 @Injectable()
 export class HealthCheckSchedulerService {
@@ -43,6 +44,23 @@ export class HealthCheckSchedulerService {
         where: { enabled: true },
       });
 
+      const projectIds = [...new Set(services.map((service) => service.projectId))];
+      const rules = projectIds.length
+        ? await this.prisma.alertRule.findMany({
+            where: { projectId: { in: projectIds }, eventType: 'SERVICE_DOWN', enabled: true },
+            select: { projectId: true, config: true },
+          })
+        : [];
+      const thresholdOverrides = new Map<string, number>();
+      for (const rule of rules) {
+        const threshold = serviceDownFailureThreshold(rule.config);
+        if (threshold === undefined) {
+          this.logger.error(`Ignoring invalid SERVICE_DOWN alert rule config for project ${rule.projectId}.`);
+          continue;
+        }
+        thresholdOverrides.set(rule.projectId, threshold);
+      }
+
       const due = services.filter((service) => {
         if (!service.lastCheckedAt) return true;
         const nextCheckAt = new Date(
@@ -58,7 +76,9 @@ export class HealthCheckSchedulerService {
       // Process in batches
       for (let i = 0; i < due.length; i += this.concurrency) {
         const batch = due.slice(i, i + this.concurrency);
-        await Promise.allSettled(batch.map((s) => this.checkService(s)));
+        await Promise.allSettled(batch.map((service) =>
+          this.checkService(service, thresholdOverrides.get(service.projectId)),
+        ));
       }
     } catch (error: any) {
       this.logger.error(`Health check scheduler error: ${error.message}`);
@@ -67,7 +87,7 @@ export class HealthCheckSchedulerService {
     }
   }
 
-  private async checkService(service: Service) {
+  private async checkService(service: Service, projectFailureThreshold?: number) {
     const startMs = Date.now();
     let status: HealthCheckStatus = 'FAIL';
     let httpStatus: number | undefined;
@@ -90,7 +110,8 @@ export class HealthCheckSchedulerService {
     });
 
     // Timeouts count as failures (spec: "Health Endpoint Timeout ต้องนับเป็นความล้มเหลว").
-    const next = evaluateHealth(service, status === 'PASS');
+    const failureThreshold = projectFailureThreshold ?? service.failureThreshold;
+    const next = evaluateHealth({ ...service, failureThreshold }, status === 'PASS');
     await this.prisma.service.update({
       where: { id: service.id },
       data: {
@@ -101,13 +122,13 @@ export class HealthCheckSchedulerService {
       },
     });
 
-    if (next.event === 'WENT_DOWN') await this.handleDown(service);
+    if (next.event === 'WENT_DOWN') await this.handleDown(service, failureThreshold);
     if (next.event === 'RECOVERED') await this.handleRecovery(service);
 
     this.logger.debug(`[${service.name}] ${status} | ${httpStatus ?? 'N/A'} | ${latencyMs}ms`);
   }
 
-  private async handleDown(service: Service) {
+  private async handleDown(service: Service, failureThreshold: number) {
     this.logger.warn(`Service DOWN: ${service.name} (${service.healthUrl})`);
 
     // One open incident per service: repeated failures while DOWN do not open more.
@@ -121,7 +142,7 @@ export class HealthCheckSchedulerService {
         data: {
           serviceId: service.id,
           title: `Service Down: ${service.name}`,
-          description: `Automatic incident created after ${service.failureThreshold} consecutive failed health checks.`,
+          description: `Automatic incident created after ${failureThreshold} consecutive failed health checks.`,
           severity: 'HIGH',
           status: 'OPEN',
         },
@@ -130,7 +151,7 @@ export class HealthCheckSchedulerService {
         data: {
           incidentId: created.id,
           eventType: 'OPENED',
-          message: `Service failed health check ${service.failureThreshold} times consecutively.`,
+          message: `Service failed health check ${failureThreshold} times consecutively.`,
         },
       });
       return created;
@@ -142,7 +163,7 @@ export class HealthCheckSchedulerService {
       type: 'SERVICE_DOWN',
       eventKey: `service_down:${incident.id}`,
       title: `${service.name} is down`,
-      body: `${service.failureThreshold} consecutive failed checks on ${service.healthUrl}`,
+      body: `${failureThreshold} consecutive failed checks on ${service.healthUrl}`,
       link: `/services/${service.id}`,
     });
     await this.notifier.emitSafely({

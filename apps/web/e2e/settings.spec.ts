@@ -25,6 +25,33 @@ test.describe('Project settings (admin)', () => {
     await expect(general.getByText('Saved.')).toBeVisible();
   });
 
+  test('configure a project-wide failure threshold override', async ({ page }) => {
+    await newProjectSettings(page);
+    const rules = page.locator('section', { has: page.getByRole('heading', { name: 'Alert rules' }) });
+    const enabled = rules.getByLabel('Override all service thresholds');
+    const threshold = rules.getByLabel('Consecutive failures before incident');
+    await expect(enabled).not.toBeChecked();
+    await expect(threshold).toHaveValue('3');
+
+    await threshold.fill('5');
+    await enabled.check();
+    await rules.getByRole('button', { name: 'Save alert rule' }).click();
+    await expect(rules.getByText('Alert rule saved.')).toBeVisible();
+
+    await page.reload();
+    const reloadedRules = page.locator('section', { has: page.getByRole('heading', { name: 'Alert rules' }) });
+    await expect(reloadedRules.getByLabel('Override all service thresholds')).toBeChecked();
+    await expect(reloadedRules.getByLabel('Consecutive failures before incident')).toHaveValue('5');
+
+    await reloadedRules.getByLabel('Override all service thresholds').uncheck();
+    await reloadedRules.getByRole('button', { name: 'Save alert rule' }).click();
+    await expect(reloadedRules.getByText('Alert rule saved.')).toBeVisible();
+    await page.reload();
+    const disabledRules = page.locator('section', { has: page.getByRole('heading', { name: 'Alert rules' }) });
+    await expect(disabledRules.getByLabel('Override all service thresholds')).not.toBeChecked();
+    await expect(disabledRules.getByLabel('Consecutive failures before incident')).toHaveValue('5');
+  });
+
   test('add an environment, then a health check that uses it', async ({ page }) => {
     await newProjectSettings(page);
 
@@ -123,5 +150,7 @@ test.describe('Settings as a viewer', () => {
     await page.getByRole('link', { name: 'Settings', exact: true }).click();
     await expect(page.getByText('You have read-only access.')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Add service' })).toHaveCount(0);
+    const rules = page.locator('section', { has: page.getByRole('heading', { name: 'Alert rules' }) });
+    await expect(rules.getByLabel('Override all service thresholds')).toBeDisabled();
   });
 });

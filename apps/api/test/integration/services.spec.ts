@@ -103,4 +103,72 @@ describe('Service health configuration (integration)', () => {
     await create({ healthUrl: 'https://example.com/health', expectedHttpStatus: 42 }).expect(400);
     await create({ healthUrl: 'ftp://example.com/health' }).expect(400);
   });
+
+  describe('project service-down alert rule', () => {
+    const path = () => `${API}/projects/${org.projectId}/alert-rules/service-down`;
+
+    it('defaults to per-service thresholds until a project override is enabled', async () => {
+      const result = await request(app.getHttpServer())
+        .get(path())
+        .set('Authorization', `Bearer ${token}`)
+        .expect(200);
+      expect(result.body.data).toEqual({ enabled: false, failureThreshold: 3 });
+      expect(await prisma.alertRule.count({ where: { projectId: org.projectId } })).toBe(0);
+    });
+
+    it('an admin can configure, update and disable the project override; changes are audited', async () => {
+      const enabled = await request(app.getHttpServer())
+        .put(path())
+        .set('Authorization', `Bearer ${token}`)
+        .send({ enabled: true, failureThreshold: 5 })
+        .expect(200);
+      expect(enabled.body.data).toEqual({ enabled: true, failureThreshold: 5 });
+
+      const stored = await prisma.alertRule.findUniqueOrThrow({
+        where: { projectId_eventType: { projectId: org.projectId, eventType: 'SERVICE_DOWN' } },
+      });
+      expect(stored.enabled).toBe(true);
+      expect(stored.config).toEqual({ failureThreshold: 5 });
+
+      const updated = await request(app.getHttpServer())
+        .put(path())
+        .set('Authorization', `Bearer ${token}`)
+        .send({ enabled: false, failureThreshold: 4 })
+        .expect(200);
+      expect(updated.body.data).toEqual({ enabled: false, failureThreshold: 4 });
+      const disabled = await request(app.getHttpServer())
+        .get(path())
+        .set('Authorization', `Bearer ${token}`)
+        .expect(200);
+      expect(disabled.body.data).toEqual({ enabled: false, failureThreshold: 4 });
+      expect(await prisma.alertRule.count({ where: { projectId: org.projectId } })).toBe(1);
+      expect(await prisma.auditLog.count({ where: { resourceType: 'ALERT_RULE', organizationId: org.orgId } })).toBe(2);
+    });
+
+    it('only owners and admins can change it, and project IDs remain organization-scoped', async () => {
+      const viewer = await createMember(app, prisma, org.orgId, 'VIEWER');
+      await request(app.getHttpServer())
+        .put(path())
+        .set('Authorization', `Bearer ${viewer.token}`)
+        .send({ enabled: true, failureThreshold: 4 })
+        .expect(403);
+
+      const otherOrg = await createOrgFixture(prisma);
+      await createMember(app, prisma, otherOrg.orgId, 'OWNER');
+      await request(app.getHttpServer())
+        .get(`${API}/projects/${otherOrg.projectId}/alert-rules/service-down`)
+        .set('Authorization', `Bearer ${token}`)
+        .expect(404);
+      expect(await prisma.alertRule.count()).toBe(0);
+    });
+
+    it.each([0, 11, 2.5])('rejects failure threshold %s outside the supported range', async (failureThreshold) => {
+      await request(app.getHttpServer())
+        .put(path())
+        .set('Authorization', `Bearer ${token}`)
+        .send({ enabled: true, failureThreshold })
+        .expect(400);
+      expect(await prisma.alertRule.count()).toBe(0);
+    });
+  });
 });

@@ -43,7 +43,9 @@ processes to avoid running the same schedulers in both services.
 ## Health checks and incidents
 
 The worker polls enabled services on their configured intervals. Probe results are
-stored in `health_checks`; consecutive failure and success thresholds control
+stored in `health_checks`; an enabled project-level `SERVICE_DOWN` alert rule overrides
+each service's failure threshold, otherwise its service-specific value applies.
+Consecutive success thresholds remain service-specific. These thresholds control
 `services.current_status` and incident creation. A recovery changes the service
 status and adds timeline context, but the incident stays open until an operator
 resolves it. Old health-check rows are removed by the daily retention job.

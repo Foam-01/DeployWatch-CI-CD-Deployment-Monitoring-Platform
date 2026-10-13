@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { FormEvent, useState } from 'react';
+import { FormEvent, useEffect, useState } from 'react';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { ServiceForm } from '@/components/service-form';
 import { EmptyState, ErrorState, LoadingState, PageHeader, StatusBadge } from '@/components/ui';
@@ -11,7 +11,7 @@ import { useApi } from '@/lib/use-api';
 import type { Environment, Project, Service } from '@/types/api';
 
 export default function ProjectSettingsPage({ params }: { params: { id: string } }) {
-  const { canWrite } = useAuth();
+  const { canWrite, canManageIntegrations } = useAuth();
   const project = useApi<Project>(`/projects/${params.id}`);
 
   if (project.loading && !project.data) return <LoadingState />;
@@ -45,8 +45,140 @@ export default function ProjectSettingsPage({ params }: { params: { id: string }
 
       <GeneralSection project={p} readOnly={readOnly} onSaved={project.reload} />
       <EnvironmentsSection project={p} readOnly={readOnly} onChange={project.reload} />
+      <AlertRulesSection projectId={p.id} readOnly={readOnly || !canManageIntegrations} />
       <ServicesSection project={p} readOnly={readOnly} onChange={project.reload} />
     </>
+  );
+}
+
+interface ServiceDownRule {
+  enabled: boolean;
+  failureThreshold: number;
+}
+
+function AlertRulesSection({ projectId, readOnly }: { projectId: string; readOnly: boolean }) {
+  const [rule, setRule] = useState<ServiceDownRule | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
+  const [enabled, setEnabled] = useState(false);
+  const [failureThreshold, setFailureThreshold] = useState('3');
+  const [loadAttempt, setLoadAttempt] = useState(0);
+  const validThreshold =
+    Number.isInteger(Number(failureThreshold)) && Number(failureThreshold) >= 1 && Number(failureThreshold) <= 10;
+  const dirty = !!rule && (enabled !== rule.enabled || Number(failureThreshold) !== rule.failureThreshold);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    api
+      .get<ServiceDownRule>(`/projects/${projectId}/alert-rules/service-down`)
+      .then(({ data }) => {
+        if (cancelled) return;
+        setRule(data);
+        setEnabled(data.enabled);
+        setFailureThreshold(String(data.failureThreshold));
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) setError(err instanceof ApiError ? err.message : 'Could not load the alert rule.');
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId, loadAttempt]);
+
+  async function save(e: FormEvent) {
+    e.preventDefault();
+    if (!dirty || !validThreshold || saving) return;
+    setSaving(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const { data } = await api.put<ServiceDownRule>(`/projects/${projectId}/alert-rules/service-down`, {
+        enabled,
+        failureThreshold: Number(failureThreshold),
+      });
+      setRule(data);
+      setMessage({ ok: true, text: 'Alert rule saved.' });
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Could not save the alert rule.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <section className="card settings-section" aria-labelledby="alert-rules-h">
+      <div className="card-head">
+        <h2 id="alert-rules-h">Alert rules</h2>
+      </div>
+      <p className="muted small">
+        Optionally override the failures-before-incident threshold for every service in this project. When disabled,
+        each service uses its own threshold; recovery settings are unchanged.
+      </p>
+      {loading ? (
+        <p className="muted small" role="status">
+          Loading alert rule…
+        </p>
+      ) : error && !rule ? (
+        <div>
+          <p className="form-error" role="alert">
+            {error}
+          </p>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => setLoadAttempt((n) => n + 1)}>
+            Retry
+          </button>
+        </div>
+      ) : (
+        <form className="form narrow" onSubmit={save}>
+          <label className="checkbox">
+            <input
+              type="checkbox"
+              checked={enabled}
+              onChange={(e) => setEnabled(e.target.checked)}
+              disabled={readOnly || saving}
+            />
+            <span>Override all service thresholds</span>
+          </label>
+          <label className="field">
+            <span>Consecutive failures before incident</span>
+            <input
+              type="number"
+              inputMode="numeric"
+              min={1}
+              max={10}
+              value={failureThreshold}
+              onChange={(e) => setFailureThreshold(e.target.value)}
+              disabled={readOnly || saving}
+              aria-invalid={!validThreshold}
+            />
+            <small className={!validThreshold ? 'field-error' : 'muted'}>Whole number between 1 and 10.</small>
+          </label>
+          {!readOnly && (
+            <div className="form-actions form-actions-start">
+              <button type="submit" className="btn btn-primary" disabled={!dirty || !validThreshold || saving}>
+                {saving ? 'Saving…' : 'Save alert rule'}
+              </button>
+              {message && (
+                <span className={message.ok ? 'success-text small' : 'form-error'} role="status">
+                  {message.text}
+                </span>
+              )}
+            </div>
+          )}
+          {error && (
+            <p className="form-error" role="alert">
+              {error}
+            </p>
+          )}
+        </form>
+      )}
+    </section>
   );
 }
 
