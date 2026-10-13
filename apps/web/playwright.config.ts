@@ -56,6 +56,7 @@ export default defineConfig({
         JWT_REFRESH_SECRET: 'e2e_jwt_refresh_secret',
         NODE_ENV: 'test',
         ENCRYPTION_KEY: E2E_ENCRYPTION_KEY,
+        PROCESS_ROLE: 'api',
       },
     },
     {
