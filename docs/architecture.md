@@ -50,6 +50,13 @@ Consecutive success thresholds remain service-specific. These thresholds control
 status and adds timeline context, but the incident stays open until an operator
 resolves it. Old health-check rows are removed by the daily retention job.
 
+## Delivery analytics
+
+The dashboard returns daily counts of successful and failed workflow runs and
+deployments for the selected 7- or 30-day UTC window. Aggregates are scoped by the
+authenticated organization and queried from indexed creation-time ranges; missing
+dates are filled with zeroes for a continuous chart.
+
 ## Entity relationship diagram
 
 The diagram shows the persisted domain relationships. `?` denotes an optional

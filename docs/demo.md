@@ -22,7 +22,8 @@ production data.
 
 1. **Dashboard and workflows:** inspect the seeded Storefront Web and Payments Engine
    projects, recent workflow runs, and the failed `CI / Jest & Playwright #143` run.
-   Open the run to see its commit and GitHub source link.
+   Switch Delivery trends between 7 and 30 days, then open the run to see its commit
+   and GitHub source link.
 2. **Deployments and environments:** open a project and inspect its Production and
    Staging environments and deployment history.
 3. **Service health and incidents:** open Services and inspect the healthy Storefront

@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { CircleCheck, TriangleAlert } from 'lucide-react';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import {
   EmptyState,
   ErrorState,
@@ -15,12 +15,16 @@ import {
 } from '@/components/ui';
 import { shortSha } from '@/lib/format';
 import { useApi } from '@/lib/use-api';
-import type { DashboardOverview } from '@/types/api';
+import { TrendChart } from '@/components/trend-chart';
+import type { DashboardAnalytics, DashboardOverview } from '@/types/api';
 
 const POLL_INTERVAL_MS = 30_000;
+const TREND_PERIODS: Array<7 | 30> = [7, 30];
 
 export default function DashboardPage() {
   const { data, error, loading, reload } = useApi<DashboardOverview>('/dashboard');
+  const [periodDays, setPeriodDays] = useState<7 | 30>(30);
+  const analytics = useApi<DashboardAnalytics>(`/dashboard/analytics?days=${periodDays}`);
 
   // Polling keeps the overview fresh without WebSockets (polling before real-time).
   // Paused while the tab is hidden; refreshes immediately when the user comes back.
@@ -82,6 +86,65 @@ export default function DashboardPage() {
           value={summary.openIncidents}
           tone={summary.openIncidents ? 'error' : 'success'}
         />
+      </section>
+
+      <section className="analytics-section" aria-labelledby="delivery-trends-heading">
+        <div className="analytics-section-head">
+          <div>
+            <h2 id="delivery-trends-heading">Delivery trends</h2>
+            <p className="muted small">Completed workflow runs and deployments by day.</p>
+          </div>
+          <div className="segmented" role="group" aria-label="Trend period">
+            {TREND_PERIODS.map((days) => (
+              <button
+                type="button"
+                className={periodDays === days ? 'active' : ''}
+                aria-pressed={periodDays === days}
+                key={days}
+                onClick={() => setPeriodDays(days)}
+              >
+                {days} days
+              </button>
+            ))}
+          </div>
+        </div>
+        {analytics.loading && !analytics.data ? (
+          <div className="card">
+            <LoadingState />
+          </div>
+        ) : analytics.error && !analytics.data ? (
+          <div className="card">
+            <ErrorState error={analytics.error} onRetry={analytics.reload} />
+          </div>
+        ) : analytics.data ? (
+          <>
+            {analytics.error && (
+              <p className="form-error" role="alert">
+                Could not refresh trend data.{' '}
+                <button type="button" className="link" onClick={analytics.reload}>
+                  Retry
+                </button>
+              </p>
+            )}
+            {analytics.loading && (
+              <p className="muted small" role="status">
+                Updating trend data…
+              </p>
+            )}
+            <div className="trend-grid" aria-busy={analytics.loading}>
+              <TrendChart
+                title="Workflow runs"
+                points={analytics.data.workflowRuns}
+                periodDays={analytics.data.periodDays}
+              />
+              <TrendChart
+                title="Deployments"
+                points={analytics.data.deployments}
+                periodDays={analytics.data.periodDays}
+              />
+            </div>
+          </>
+        ) : null}
       </section>
 
       <div className="two-col">

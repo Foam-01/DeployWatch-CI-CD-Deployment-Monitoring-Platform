@@ -4,6 +4,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { OrgGuard } from '../common/guards/org.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { DeploymentsService } from './deployments.service';
+import { DashboardAnalyticsQueryDto } from './dto/dashboard-analytics-query.dto';
 
 @ApiTags('deployments')
 @ApiBearerAuth()
@@ -16,6 +17,15 @@ export class DeploymentsController {
   @ApiOperation({ summary: 'Get dashboard overview metrics' })
   getDashboard(@CurrentUser('organizationId') orgId: string) {
     return this.deploymentsService.getDashboardOverview(orgId);
+  }
+
+  @Get('dashboard/analytics')
+  @ApiOperation({ summary: 'Get daily workflow and deployment trends' })
+  getDashboardAnalytics(
+    @CurrentUser('organizationId') orgId: string,
+    @Query() query: DashboardAnalyticsQueryDto,
+  ) {
+    return this.deploymentsService.getDashboardAnalytics(orgId, query.days);
   }
 
   @Get('deployments')

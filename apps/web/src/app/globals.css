@@ -458,6 +458,102 @@ code {
   color: var(--text-2);
   font-size: 0.8125rem;
 }
+.analytics-section {
+  display: grid;
+  gap: 12px;
+}
+.analytics-section-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 16px;
+}
+.analytics-section-head p {
+  margin-top: 4px;
+}
+.trend-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 24px;
+}
+.trend-card {
+  min-width: 0;
+}
+.trend-card .card-head {
+  align-items: baseline;
+}
+.trend-card h3 {
+  font-size: 0.9375rem;
+  font-weight: 600;
+}
+.trend-legend {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 8px;
+  color: var(--text-2);
+  font-size: 0.75rem;
+}
+.trend-legend > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.trend-swatch {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+}
+.trend-swatch-success {
+  background: var(--ok);
+}
+.trend-swatch-failure {
+  background: var(--fail);
+}
+.trend-chart {
+  display: grid;
+  grid-template-columns: repeat(var(--trend-columns), minmax(0, 1fr));
+  align-items: stretch;
+  gap: 3px;
+  height: 156px;
+  margin: 0 2px 24px;
+  border-bottom: 1px solid var(--line-strong);
+}
+.trend-bar-column {
+  position: relative;
+  min-width: 0;
+  height: 100%;
+}
+.trend-bar-stack {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column-reverse;
+  align-items: center;
+  justify-content: flex-start;
+}
+.trend-bar {
+  width: min(14px, 100%);
+  flex: 0 0 auto;
+}
+.trend-bar-success {
+  background: var(--ok);
+}
+.trend-bar-failure {
+  background: var(--fail);
+}
+.trend-date {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 50%;
+  color: var(--text-3);
+  font-size: 0.625rem;
+  line-height: 1;
+  white-space: nowrap;
+  transform: translateX(-50%);
+}
+.trend-empty {
+  padding: 24px 0;
+}
 .stat-value {
   font-size: 1.5rem;
   font-weight: 600;
@@ -1257,6 +1353,16 @@ summary {
 @media (max-width: 960px) {
   .two-col {
     grid-template-columns: minmax(0, 1fr);
+  }
+  .trend-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 560px) {
+  .analytics-section-head {
+    align-items: flex-start;
+    flex-direction: column;
   }
 }
 

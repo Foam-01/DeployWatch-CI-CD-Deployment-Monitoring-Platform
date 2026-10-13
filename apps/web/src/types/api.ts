@@ -161,6 +161,18 @@ export interface DashboardOverview {
   recentDeployments: Deployment[];
 }
 
+export interface DashboardAnalyticsPoint {
+  date: string;
+  successes: number;
+  failures: number;
+}
+
+export interface DashboardAnalytics {
+  periodDays: 7 | 30;
+  workflowRuns: DashboardAnalyticsPoint[];
+  deployments: DashboardAnalyticsPoint[];
+}
+
 export interface Member {
   id: string;
   role: MemberRole;

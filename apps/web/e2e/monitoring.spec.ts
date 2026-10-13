@@ -4,6 +4,18 @@ import { ADMIN_STATE, VIEWER_STATE, settled } from './helpers';
 test.describe('Monitoring flows (admin)', () => {
   test.use({ storageState: ADMIN_STATE });
 
+  test('dashboard shows daily delivery trends and supports period selection', async ({ page }) => {
+    await page.goto('/dashboard');
+    const period = page.getByRole('group', { name: 'Trend period' });
+    await expect(period.getByRole('button', { name: '30 days' })).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.getByRole('img', { name: 'Workflow runs, last 30 days' })).toBeVisible();
+    await expect(page.getByRole('img', { name: 'Deployments, last 30 days' })).toBeVisible();
+
+    await period.getByRole('button', { name: '7 days' }).click();
+    await expect(page.getByRole('img', { name: 'Workflow runs, last 7 days' })).toBeVisible();
+    await expect(page.getByRole('img', { name: 'Deployments, last 7 days' })).toBeVisible();
+  });
+
   test('dashboard → project → workflow run detail shows commit and source link', async ({ page }) => {
     await page.goto('/dashboard');
     await expect(page.getByText('Active projects')).toBeVisible();
