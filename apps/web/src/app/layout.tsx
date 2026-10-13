@@ -1,25 +1,20 @@
 import type { Metadata } from 'next';
+import { AuthProvider } from '@/lib/auth-context';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'DeployWatch — Production CI/CD & Deployment Monitoring',
-  description: 'Real-time multi-project CI/CD observability, GitHub Actions webhook ingestion, automated health checking, and incident triage platform.',
-  icons: {
-    icon: '/favicon.ico',
-  },
+  title: 'DeployWatch — CI/CD & Deployment Monitoring',
+  description:
+    'Centralized monitoring for GitHub Actions workflows, deployments, service health and incidents.',
+  icons: { icon: '/favicon.svg' },
 };
 
-export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <head>
-        <meta name="viewport" content="width=device-width, initial-scale=1" />
-      </head>
-      <body>{children}</body>
+      <body>
+        <AuthProvider>{children}</AuthProvider>
+      </body>
     </html>
   );
 }
