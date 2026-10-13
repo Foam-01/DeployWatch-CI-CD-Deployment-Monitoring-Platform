@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Activity,
   AlertTriangle,
@@ -30,7 +30,21 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const { user, role, logout } = useAuth();
   const [navOpen, setNavOpen] = useState(false);
+  const openButtonRef = useRef<HTMLButtonElement>(null);
   const org = user?.memberships[0]?.organization;
+
+  // Mobile drawer: Escape closes it and focus returns to the button that opened it.
+  useEffect(() => {
+    if (!navOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setNavOpen(false);
+        openButtonRef.current?.focus();
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [navOpen]);
 
   async function handleLogout() {
     await logout();
@@ -43,7 +57,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         Skip to content
       </a>
 
-      <aside className={`sidebar ${navOpen ? 'open' : ''}`} aria-label="Main navigation">
+      {navOpen && (
+        <button
+          type="button"
+          className="nav-backdrop"
+          aria-hidden
+          tabIndex={-1}
+          onClick={() => setNavOpen(false)}
+        />
+      )}
+      <aside id="main-nav" className={`sidebar ${navOpen ? 'open' : ''}`} aria-label="Main navigation">
         <div className="brand">
           <span className="brand-mark" aria-hidden>
             DW
@@ -80,9 +103,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <div className="main-col">
         <header className="topbar">
           <button
+            ref={openButtonRef}
             type="button"
             className="icon-btn nav-open"
             aria-label="Open navigation"
+            aria-expanded={navOpen}
+            aria-controls="main-nav"
             onClick={() => setNavOpen(true)}
           >
             <Menu size={20} />

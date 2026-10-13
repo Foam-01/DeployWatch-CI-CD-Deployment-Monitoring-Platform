@@ -1,5 +1,3 @@
-@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
-
 :root {
   --bg-base: #090d16;
   --bg-surface: #0f172a;
@@ -14,6 +12,8 @@
 
   --brand: #6366f1;
   --brand-light: #a5b4fc;
+  --brand-hover: #5458e8;
+  --overlay: rgba(2, 6, 15, 0.6);
 
   --success: #34d399;
   --success-bg: rgba(16, 185, 129, 0.14);
@@ -25,8 +25,9 @@
   --info-bg: rgba(14, 165, 233, 0.14);
   --neutral-bg: rgba(148, 163, 184, 0.14);
 
-  --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+  --font-sans: var(--font-plex-sans), -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: var(--font-plex-mono), ui-monospace, 'Cascadia Mono', monospace;
+  --touch-target: 44px;
 
   --radius-sm: 6px;
   --radius-md: 10px;
@@ -38,6 +39,11 @@
   box-sizing: border-box;
   margin: 0;
   padding: 0;
+}
+
+html {
+  color-scheme: dark;
+  scrollbar-color: #334155 var(--bg-base);
 }
 
 body {
@@ -60,6 +66,16 @@ a {
   outline-offset: 2px;
 }
 
+::selection {
+  background: rgba(99, 102, 241, 0.45);
+  color: var(--text);
+}
+
+input,
+textarea {
+  caret-color: var(--brand-light);
+}
+
 h1 {
   font-size: 1.5rem;
   font-weight: 700;
@@ -75,6 +91,14 @@ code,
 .mono {
   font-family: var(--font-mono);
   font-size: 0.92em;
+}
+
+/* Durations, counts and timestamps line up in columns. */
+.table,
+.details,
+.stat-value,
+.mono {
+  font-variant-numeric: tabular-nums;
 }
 
 code {
@@ -166,7 +190,7 @@ code {
   width: 30px;
   height: 30px;
   border-radius: 8px;
-  background: linear-gradient(135deg, #6366f1, #a855f7);
+  background: var(--brand);
   font-size: 0.75rem;
   color: #fff;
 }
@@ -293,21 +317,66 @@ code {
 
 .stat-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
 }
-
+@media (min-width: 720px) {
+  .stat-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+@media (min-width: 1240px) {
+  .stat-grid {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+}
 .stat {
-  border-left: 3px solid var(--border-strong);
+  padding: 14px 16px;
 }
-.stat-success {
-  border-left-color: var(--success);
+.service-split {
+  display: flex;
+  gap: 10px;
 }
-.stat-error {
-  border-left-color: var(--error);
+.split {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.1;
 }
-.stat-warning {
-  border-left-color: var(--warning);
+.split small {
+  font-size: 0.7rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+.split-warning {
+  color: var(--warning);
+}
+.split-error {
+  color: var(--error);
+}
+
+/* Tone is shown by a status dot on the label, never by color alone (the label names it). */
+.stat-label::before {
+  content: '';
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  margin-right: 8px;
+  vertical-align: 1px;
+  background: var(--border-strong);
+}
+.stat-success .stat-label::before {
+  background: var(--success);
+}
+.stat-error .stat-label::before {
+  background: var(--error);
+}
+.stat-warning .stat-label::before {
+  background: var(--warning);
+}
+.stat-error .stat-value:not(:has(.service-split)) {
+  color: var(--error);
 }
 .stat-label {
   color: var(--text-secondary);
@@ -414,6 +483,10 @@ code {
 a.list-row:hover {
   background: var(--bg-hover);
   border-radius: var(--radius-sm);
+}
+.list-row > .badge:first-child {
+  /* Fixed status column keeps titles aligned row to row. */
+  min-width: 106px;
 }
 .list-main {
   display: flex;
@@ -556,6 +629,9 @@ a.list-row:hover {
 .btn:hover:not(:disabled) {
   background: var(--bg-hover);
 }
+.btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
 .btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
@@ -566,7 +642,7 @@ a.list-row:hover {
   color: #fff;
 }
 .btn-primary:hover:not(:disabled) {
-  background: #5458e8;
+  background: var(--brand-hover);
 }
 .btn-ghost {
   background: transparent;
@@ -582,7 +658,7 @@ a.list-row:hover {
 .form {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 10px;
   margin-top: 16px;
 }
 .form.narrow {
@@ -718,6 +794,28 @@ input[aria-invalid='true'] {
   .spinner {
     animation-duration: 3s;
   }
+  .sidebar,
+  .sidebar.open {
+    transition: none;
+  }
+}
+
+/* Finger-sized hit areas on touch screens. */
+@media (pointer: coarse) {
+  .btn,
+  .icon-btn,
+  input,
+  select {
+    min-height: var(--touch-target);
+  }
+  .icon-btn {
+    min-width: var(--touch-target);
+    display: inline-grid;
+    place-items: center;
+  }
+  .nav-link {
+    min-height: var(--touch-target);
+  }
 }
 
 /* ── Auth ──────────────────────────────────────────────── */
@@ -727,7 +825,6 @@ input[aria-invalid='true'] {
   display: grid;
   place-items: center;
   padding: 16px;
-  background: radial-gradient(ellipse 80% 50% at 50% -10%, rgba(99, 102, 241, 0.18), transparent);
 }
 .auth-card {
   width: 100%;
@@ -755,11 +852,24 @@ input[aria-invalid='true'] {
     left: 0;
     z-index: 50;
     transform: translateX(-100%);
-    transition: transform 0.2s ease;
-    box-shadow: 0 0 40px rgba(0, 0, 0, 0.6);
+    /* visibility keeps closed-drawer links out of the tab order and screen readers */
+    visibility: hidden;
+    transition:
+      transform 0.22s cubic-bezier(0.16, 1, 0.3, 1),
+      visibility 0s linear 0.22s;
+    box-shadow: 8px 0 32px rgba(0, 0, 0, 0.5);
   }
   .sidebar.open {
     transform: none;
+    visibility: visible;
+    transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .nav-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+    background: var(--overlay);
+    border: none;
   }
   .nav-open,
   .nav-close {

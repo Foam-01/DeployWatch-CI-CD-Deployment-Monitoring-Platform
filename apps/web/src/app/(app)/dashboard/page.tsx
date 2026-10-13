@@ -21,10 +21,18 @@ const POLL_INTERVAL_MS = 30_000;
 export default function DashboardPage() {
   const { data, error, loading, reload } = useApi<DashboardOverview>('/dashboard');
 
-  // Polling keeps the overview fresh without WebSockets (see ADR: polling before real-time).
+  // Polling keeps the overview fresh without WebSockets (polling before real-time).
+  // Paused while the tab is hidden; refreshes immediately when the user comes back.
   useEffect(() => {
-    const id = setInterval(reload, POLL_INTERVAL_MS);
-    return () => clearInterval(id);
+    const id = setInterval(() => {
+      if (document.visibilityState === 'visible') reload();
+    }, POLL_INTERVAL_MS);
+    const onVisible = () => document.visibilityState === 'visible' && reload();
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
   }, [reload]);
 
   if (loading && !data) return <LoadingState />;
@@ -44,13 +52,27 @@ export default function DashboardPage() {
         <StatCard
           label="Deployment success rate"
           value={summary.deploymentSuccessRate === null ? '—' : `${summary.deploymentSuccessRate}%`}
-          hint="Success ÷ (success + failure)"
+          hint="Finished deploys, last 30 days"
         />
         <StatCard
           label="Services"
-          value={`${summary.services.healthy} / ${summary.services.degraded} / ${summary.services.down}`}
-          hint="Healthy / Degraded / Down"
           tone={summary.services.down ? 'error' : summary.services.degraded ? 'warning' : 'success'}
+          value={
+            <span className="service-split">
+              <span className="split">
+                {summary.services.healthy}
+                <small>healthy</small>
+              </span>
+              <span className={`split ${summary.services.degraded ? 'split-warning' : ''}`}>
+                {summary.services.degraded}
+                <small>degraded</small>
+              </span>
+              <span className={`split ${summary.services.down ? 'split-error' : ''}`}>
+                {summary.services.down}
+                <small>down</small>
+              </span>
+            </span>
+          }
         />
         <StatCard
           label="Open incidents"
