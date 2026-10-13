@@ -26,11 +26,18 @@ export class OrgGuard implements CanActivate {
       throw new ForbiddenException('Authentication required.');
     }
 
-    // Allow org override via header or query param
+    // An organization named in the route (/organizations/:orgId/...) must be one the
+    // user belongs to; otherwise fall back to the header/query selector, then the first
+    // membership. The membership lookup below is what enforces access in every case.
     const orgId =
+      request.params?.orgId ||
       request.headers['x-organization-id'] ||
       request.query.organizationId ||
       undefined;
+
+    if (orgId && !/^[0-9a-f-]{36}$/i.test(String(orgId))) {
+      throw new NotFoundException('No organization membership found.');
+    }
 
     const membership = await this.prisma.membership.findFirst({
       relationLoadStrategy: 'join', // runs on every request: one round trip, not two

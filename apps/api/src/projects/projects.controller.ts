@@ -1,5 +1,5 @@
 import {
-  Controller, Get, Post, Patch, Param, Body, Query, UseGuards, ParseUUIDPipe,
+  Controller, Get, Post, Patch, Delete, Param, Body, Query, UseGuards, ParseUUIDPipe,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -9,6 +9,7 @@ import { ProjectsService } from './projects.service';
 import { CreateProjectDto } from './dto/create-project.dto';
 import { UpdateProjectDto } from './dto/update-project.dto';
 import { ProjectQueryDto } from './dto/project-query.dto';
+import { CreateEnvironmentDto } from './dto/create-environment.dto';
 import { OrgGuard } from '../common/guards/org.guard';
 
 @ApiTags('projects')
@@ -77,5 +78,29 @@ export class ProjectsController {
     @CurrentUser('organizationId') organizationId: string,
   ) {
     return this.projectsService.getMetrics(id, organizationId);
+  }
+
+  @Post(':id/environments')
+  @ApiOperation({ summary: 'Add an environment (name must match the GitHub Environment)' })
+  createEnvironment(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser('organizationId') organizationId: string,
+    @CurrentUser('memberRole') role: string,
+    @Body() dto: CreateEnvironmentDto,
+  ) {
+    assertWritableRole(role);
+    return this.projectsService.createEnvironment(id, organizationId, dto);
+  }
+
+  @Delete(':id/environments/:environmentId')
+  @ApiOperation({ summary: 'Remove an environment that has no deployments' })
+  deleteEnvironment(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('environmentId', ParseUUIDPipe) environmentId: string,
+    @CurrentUser('organizationId') organizationId: string,
+    @CurrentUser('memberRole') role: string,
+  ) {
+    assertWritableRole(role);
+    return this.projectsService.deleteEnvironment(id, environmentId, organizationId);
   }
 }

@@ -1,13 +1,16 @@
-import { IsString, IsUrl, IsOptional, IsInt, IsBoolean, Min, Max, IsUUID } from 'class-validator';
+import { IsString, IsUrl, IsOptional, IsInt, IsBoolean, Min, Max, IsUUID, MaxLength, MinLength } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class CreateServiceDto {
   @ApiProperty({ example: 'API Server' })
   @IsString()
+  @MinLength(1)
+  @MaxLength(100)
   name: string;
 
   @ApiProperty({ example: 'https://api.example.com/health' })
-  @IsUrl()
+  @IsUrl({ protocols: ['http', 'https'], require_protocol: true, require_tld: false })
+  @MaxLength(2048)
   healthUrl: string;
 
   @ApiPropertyOptional()
@@ -32,6 +35,8 @@ export class CreateServiceDto {
   @ApiPropertyOptional({ default: 200 })
   @IsOptional()
   @IsInt()
+  @Min(100)
+  @Max(599)
   expectedHttpStatus?: number;
 
   @ApiPropertyOptional({ default: 3 })

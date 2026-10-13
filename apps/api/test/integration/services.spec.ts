@@ -75,4 +75,32 @@ describe('Service health configuration (integration)', () => {
     await create({ healthUrl: 'https://example.com/health', environmentId: other.environmentId }).expect(400);
     expect(await prisma.service.count()).toBe(0);
   });
+
+  it('TC-E01 creates an environment whose slug matches GitHub deployment names; duplicates conflict', async () => {
+    const post = (body: object) =>
+      request(app.getHttpServer())
+        .post(`${API}/projects/${org.projectId}/environments`)
+        .set('Authorization', `Bearer ${token}`)
+        .send(body);
+    const res = await post({ name: 'Staging EU', isProduction: false }).expect(201);
+    expect(res.body.data).toMatchObject({ name: 'Staging EU', slug: 'staging-eu', isProduction: false });
+    await post({ name: 'Staging EU' }).expect(409);
+    await post({ name: '<script>' }).expect(400);
+  });
+
+  it('TC-E02 an environment with deployment history cannot be deleted', async () => {
+    await prisma.deployment.create({
+      data: { projectId: org.projectId, environmentId: org.environmentId, status: 'SUCCESS', commitSha: 'a'.repeat(40) },
+    });
+    await request(app.getHttpServer())
+      .delete(`${API}/projects/${org.projectId}/environments/${org.environmentId}`)
+      .set('Authorization', `Bearer ${token}`)
+      .expect(409);
+    expect(await prisma.deployment.count()).toBe(1);
+  });
+
+  it('TC-H05 rejects an out-of-range expected status and a non-http URL scheme', async () => {
+    await create({ healthUrl: 'https://example.com/health', expectedHttpStatus: 42 }).expect(400);
+    await create({ healthUrl: 'ftp://example.com/health' }).expect(400);
+  });
 });

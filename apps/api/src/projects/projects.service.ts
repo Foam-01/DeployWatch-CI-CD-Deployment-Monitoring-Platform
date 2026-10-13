@@ -1,4 +1,6 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
+import { CreateEnvironmentDto } from './dto/create-environment.dto';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { PUBLIC_REPOSITORY_SELECT } from '../repositories/repositories.service';
 import { CreateProjectDto } from './dto/create-project.dto';
@@ -178,6 +180,39 @@ export class ProjectsService {
         openIncidents,
       },
     };
+  }
+
+  async createEnvironment(projectId: string, organizationId: string, dto: CreateEnvironmentDto) {
+    await this.findOne(projectId, organizationId);
+    const name = dto.name.trim();
+    // Slug matches how webhook processing resolves `deployment.environment`.
+    const slug = name.toLowerCase().replace(/\s+/g, '-');
+    try {
+      const env = await this.prisma.environment.create({
+        data: { projectId, name, slug, isProduction: dto.isProduction ?? false },
+      });
+      return { data: env };
+    } catch (err) {
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+        throw new ConflictException(`Environment "${name}" already exists in this project.`);
+      }
+      throw err;
+    }
+  }
+
+  async deleteEnvironment(projectId: string, environmentId: string, organizationId: string) {
+    await this.findOne(projectId, organizationId);
+    const env = await this.prisma.environment.findFirst({
+      where: { id: environmentId, projectId },
+      include: { _count: { select: { deployments: true } } },
+    });
+    if (!env) throw new NotFoundException('Environment not found.');
+    // Deleting would cascade away deployment history (spec: history must not vanish).
+    if (env._count.deployments > 0) {
+      throw new ConflictException('This environment has deployment history and cannot be removed.');
+    }
+    await this.prisma.environment.delete({ where: { id: environmentId } });
+    return { data: { id: environmentId } };
   }
 
   private generateSlug(name: string): string {
