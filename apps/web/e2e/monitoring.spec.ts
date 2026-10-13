@@ -47,6 +47,26 @@ test.describe('Monitoring flows (admin)', () => {
     await expect(page.getByRole('link', { name })).toBeVisible();
   });
 
+  test('archive asks for confirmation in a dialog; Escape cancels, confirm archives', async ({ page }) => {
+    await page.goto('/projects/new');
+    const name = `Archive Me ${Date.now()}`;
+    await page.getByLabel('Name').fill(name);
+    await page.getByRole('button', { name: 'Create project' }).click();
+    await expect(page.getByRole('heading', { name })).toBeVisible();
+
+    await page.getByRole('button', { name: 'Archive' }).click();
+    const dialog = page.getByRole('dialog', { name: `Archive ${name}?` });
+    await expect(dialog).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(dialog).toBeHidden();
+    await expect(page.locator('.page-actions').getByText('ACTIVE', { exact: true })).toBeVisible();
+
+    await page.getByRole('button', { name: 'Archive' }).click();
+    await dialog.getByRole('button', { name: 'Archive project' }).click();
+    await expect(dialog).toBeHidden();
+    await expect(page.locator('.page-actions').getByText('ARCHIVED', { exact: true })).toBeVisible();
+  });
+
   test('incident detail shows the timeline', async ({ page }) => {
     await page.goto('/incidents');
     await page.getByRole('link', { name: /Payment Authorization API/ }).click();

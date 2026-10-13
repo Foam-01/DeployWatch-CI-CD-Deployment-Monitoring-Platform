@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { FormEvent, useState } from 'react';
+import { ConfirmDialog } from '@/components/confirm-dialog';
 import {
   EmptyState,
   ErrorState,
@@ -25,7 +26,7 @@ export default function ProjectDetailPage({ params }: { params: { id: string } }
   const project = useApi<Project>(`/projects/${params.id}`);
   const metrics = useApi<ProjectMetrics>(`/projects/${params.id}/metrics`);
   const runs = useApi<WorkflowRun[]>(`/projects/${params.id}/workflow-runs?limit=10`);
-  const [archiving, setArchiving] = useState(false);
+  const [confirmArchive, setConfirmArchive] = useState(false);
 
   if (project.loading) return <LoadingState />;
   if (project.error) return <ErrorState error={project.error} onRetry={project.reload} />;
@@ -33,16 +34,8 @@ export default function ProjectDetailPage({ params }: { params: { id: string } }
   if (!p) return null;
 
   async function archive() {
-    if (!window.confirm(`Archive "${p!.name}"? History is kept and the project becomes read-only.`)) return;
-    setArchiving(true);
-    try {
-      await api.post(`/projects/${p!.id}/archive`);
-      project.reload();
-    } catch (err) {
-      window.alert(err instanceof Error ? err.message : 'Archive failed.');
-    } finally {
-      setArchiving(false);
-    }
+    await api.post(`/projects/${p!.id}/archive`);
+    project.reload();
   }
 
   const m = metrics.data;
@@ -56,12 +49,21 @@ export default function ProjectDetailPage({ params }: { params: { id: string } }
           <>
             <StatusBadge value={p.status} />
             {canWrite && p.status === 'ACTIVE' && (
-              <button type="button" className="btn btn-ghost" onClick={archive} disabled={archiving}>
-                {archiving ? 'Archiving…' : 'Archive'}
+              <button type="button" className="btn btn-ghost" onClick={() => setConfirmArchive(true)}>
+                Archive
               </button>
             )}
           </>
         }
+      />
+
+      <ConfirmDialog
+        open={confirmArchive}
+        title={`Archive ${p.name}?`}
+        description="Run, deployment and incident history is kept. The project becomes read-only and stops appearing in active lists."
+        confirmLabel="Archive project"
+        onConfirm={archive}
+        onClose={() => setConfirmArchive(false)}
       />
 
       {m && (
@@ -189,6 +191,7 @@ function RepositoriesCard({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [created, setCreated] = useState<Repository | null>(null);
+  const [unlinking, setUnlinking] = useState<Repository | null>(null);
 
   async function link(e: FormEvent) {
     e.preventDefault();
@@ -212,13 +215,8 @@ function RepositoriesCard({
   }
 
   async function unlink(repo: Repository) {
-    if (!window.confirm(`Unlink ${repo.fullName}? Its workflow run history will be deleted.`)) return;
-    try {
-      await api.delete(`/projects/${projectId}/repositories/${repo.id}`);
-      onChange();
-    } catch (err) {
-      window.alert(err instanceof Error ? err.message : 'Unlink failed.');
-    }
+    await api.delete(`/projects/${projectId}/repositories/${repo.id}`);
+    onChange();
   }
 
   return (
@@ -240,7 +238,7 @@ function RepositoriesCard({
                 </span>
               </div>
               {canManage && (
-                <button type="button" className="btn btn-ghost btn-sm" onClick={() => unlink(r)}>
+                <button type="button" className="btn btn-ghost btn-sm" onClick={() => setUnlinking(r)}>
                   Unlink
                 </button>
               )}
@@ -248,6 +246,16 @@ function RepositoriesCard({
           ))}
         </ul>
       )}
+
+      <ConfirmDialog
+        open={unlinking !== null}
+        danger
+        title={`Unlink ${unlinking?.fullName ?? 'repository'}?`}
+        description="Its workflow run history will be permanently deleted and new webhook deliveries will be rejected."
+        confirmLabel="Unlink repository"
+        onConfirm={() => unlink(unlinking!)}
+        onClose={() => setUnlinking(null)}
+      />
 
       {created?.webhookSecret && (
         <div className="callout" role="status">

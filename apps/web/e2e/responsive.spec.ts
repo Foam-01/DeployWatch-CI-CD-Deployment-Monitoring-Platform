@@ -6,15 +6,18 @@ const PAGES = ['/dashboard', '/projects', '/workflow-runs', '/deployments', '/se
 test.describe('Responsive layout', () => {
   test.use({ storageState: ADMIN_STATE });
 
-  test('no page scrolls horizontally on a phone', async ({ page }) => {
+  // Breakpoints required by the ui-ux-pro-max checklist.
+  test('no page scrolls horizontally at 375 / 768 / 1024 / 1440 px', async ({ page }) => {
+    for (const width of [375, 768, 1024, 1440])
     for (const path of PAGES) {
+      await page.setViewportSize({ width, height: 900 });
       await page.goto(path);
       await expect(page.locator('main h1')).toBeVisible();
       await settled(page);
       const overflow = await page.evaluate(
         () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
       );
-      expect(overflow, `${path} overflows horizontally by ${overflow}px`).toBeLessThanOrEqual(1);
+      expect(overflow, `${path} @${width}px overflows by ${overflow}px`).toBeLessThanOrEqual(1);
     }
   });
 
