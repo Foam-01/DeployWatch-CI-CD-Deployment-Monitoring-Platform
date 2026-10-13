@@ -33,6 +33,7 @@ export class OrgGuard implements CanActivate {
       undefined;
 
     const membership = await this.prisma.membership.findFirst({
+      relationLoadStrategy: 'join', // runs on every request: one round trip, not two
       where: {
         userId: user.id,
         ...(orgId ? { organizationId: orgId } : {}),

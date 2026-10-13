@@ -94,21 +94,9 @@ export class AuthService {
     return this.generateTokens(user);
   }
 
-  async validateUserById(id: string) {
-    return this.prisma.user.findUnique({
-      where: { id },
-      select: {
-        id: true,
-        email: true,
-        name: true,
-        avatarUrl: true,
-        createdAt: true,
-      },
-    });
-  }
-
   async getMe(userId: string) {
     const user = await this.prisma.user.findUniqueOrThrow({
+      relationLoadStrategy: 'join',
       where: { id: userId },
       select: {
         id: true,

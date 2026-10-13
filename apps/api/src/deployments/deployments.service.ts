@@ -57,72 +57,61 @@ export class DeploymentsService {
   async getDashboardOverview(organizationId: string) {
     const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
 
-    const [
-      totalProjects,
-      successfulRuns,
-      failedRuns,
-      totalDeployments,
-      successfulDeployments,
-      healthyServices,
-      degradedServices,
-      downServices,
-      openIncidents,
-      recentRuns,
-      recentDeployments,
-    ] = await Promise.all([
-      this.prisma.project.count({ where: { organizationId, status: 'ACTIVE' } }),
-      this.prisma.workflowRun.count({
-        where: {
-          repository: { project: { organizationId } },
-          conclusion: 'SUCCESS',
-          createdAt: { gte: thirtyDaysAgo },
-        },
-      }),
-      this.prisma.workflowRun.count({
-        where: {
-          repository: { project: { organizationId } },
-          conclusion: 'FAILURE',
-          createdAt: { gte: thirtyDaysAgo },
-        },
-      }),
-      this.prisma.deployment.count({
-        where: {
-          project: { organizationId },
-          status: { in: ['SUCCESS', 'FAILURE'] },
-          createdAt: { gte: thirtyDaysAgo },
-        },
-      }),
-      this.prisma.deployment.count({
-        where: {
-          project: { organizationId },
-          status: 'SUCCESS',
-          createdAt: { gte: thirtyDaysAgo },
-        },
-      }),
-      this.prisma.service.count({ where: { project: { organizationId }, currentStatus: 'HEALTHY' } }),
-      this.prisma.service.count({ where: { project: { organizationId }, currentStatus: 'DEGRADED' } }),
-      this.prisma.service.count({ where: { project: { organizationId }, currentStatus: 'DOWN' } }),
-      this.prisma.incident.count({
-        where: { service: { project: { organizationId } }, status: { not: 'RESOLVED' } },
-      }),
-      this.prisma.workflowRun.findMany({
-        where: { repository: { project: { organizationId } } },
-        take: 10,
-        orderBy: { createdAt: 'desc' },
-        include: {
-          repository: { select: { project: { select: { name: true } } } },
-        },
-      }),
-      this.prisma.deployment.findMany({
-        where: { project: { organizationId } },
-        take: 10,
-        orderBy: { createdAt: 'desc' },
-        include: {
-          environment: { select: { name: true } },
-          project: { select: { name: true } },
-        },
-      }),
-    ]);
+    // Counts are grouped (3 queries instead of 7) because every query is a network
+    // round trip to the database.
+    const [totalProjects, runCounts, deploymentCounts, serviceCounts, openIncidents, recentRuns, recentDeployments] =
+      await Promise.all([
+        this.prisma.project.count({ where: { organizationId, status: 'ACTIVE' } }),
+        this.prisma.workflowRun.groupBy({
+          by: ['conclusion'],
+          where: {
+            repository: { project: { organizationId } },
+            conclusion: { in: ['SUCCESS', 'FAILURE'] },
+            createdAt: { gte: thirtyDaysAgo },
+          },
+          _count: { _all: true },
+        }),
+        this.prisma.deployment.groupBy({
+          by: ['status'],
+          where: {
+            project: { organizationId },
+            status: { in: ['SUCCESS', 'FAILURE'] },
+            createdAt: { gte: thirtyDaysAgo },
+          },
+          _count: { _all: true },
+        }),
+        this.prisma.service.groupBy({
+          by: ['currentStatus'],
+          where: { project: { organizationId } },
+          _count: { _all: true },
+        }),
+        this.prisma.incident.count({
+          where: { service: { project: { organizationId } }, status: { not: 'RESOLVED' } },
+        }),
+        this.prisma.workflowRun.findMany({
+          where: { repository: { project: { organizationId } } },
+          take: 10,
+          orderBy: { createdAt: 'desc' },
+          include: { repository: { select: { project: { select: { name: true } } } } },
+        }),
+        this.prisma.deployment.findMany({
+          where: { project: { organizationId } },
+          take: 10,
+          orderBy: { createdAt: 'desc' },
+          include: { environment: { select: { name: true } }, project: { select: { name: true } } },
+        }),
+      ]);
+
+    const count = <K extends string>(rows: Array<Record<K, unknown> & { _count: { _all: number } }>, key: K, value: string) =>
+      rows.find((r) => r[key] === value)?._count._all ?? 0;
+
+    const successfulRuns = count(runCounts, 'conclusion', 'SUCCESS');
+    const failedRuns = count(runCounts, 'conclusion', 'FAILURE');
+    const successfulDeployments = count(deploymentCounts, 'status', 'SUCCESS');
+    const totalDeployments = successfulDeployments + count(deploymentCounts, 'status', 'FAILURE');
+    const healthyServices = count(serviceCounts, 'currentStatus', 'HEALTHY');
+    const degradedServices = count(serviceCounts, 'currentStatus', 'DEGRADED');
+    const downServices = count(serviceCounts, 'currentStatus', 'DOWN');
 
     const deploymentSuccessRate =
       totalDeployments > 0 ? Math.round((successfulDeployments / totalDeployments) * 100) : null;
