@@ -1006,6 +1006,155 @@ summary {
   gap: 6px;
 }
 
+/* ── Notifications ───────────────────────────────────── */
+
+.bell {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  color: var(--text-2);
+}
+.bell:hover {
+  color: var(--text);
+}
+.bell-count {
+  position: absolute;
+  top: 0;
+  right: -2px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--fail);
+  color: #fff;
+  font-size: 0.625rem;
+  font-weight: 600;
+  line-height: 16px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.segmented {
+  display: inline-flex;
+  align-self: flex-start;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+.segmented button {
+  font: inherit;
+  font-weight: 500;
+  padding: 5px 14px;
+  border: none;
+  background: var(--surface);
+  color: var(--text-2);
+}
+.segmented button + button {
+  border-left: 1px solid var(--line-strong);
+}
+.segmented button.active {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.notification-list {
+  list-style: none;
+  padding: 0;
+}
+.notification-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 12px 16px;
+  border: none;
+  border-top: 1px solid var(--line);
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+}
+.notification-list li:first-child .notification-row {
+  border-top: none;
+}
+.notification-row:hover {
+  background: var(--hover);
+}
+.notification-row > .badge {
+  min-width: 150px;
+}
+.notification-main {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+.notification-main > * {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.notification-row:not(.unread) .notification-main strong {
+  font-weight: 400;
+  color: var(--text-2);
+}
+.unread-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex-shrink: 0;
+}
+
+.row-actions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.channel-row {
+  align-items: flex-start;
+}
+.channel-row .list-main {
+  gap: 2px;
+}
+.channel-form {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+.form-title {
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+.event-picker {
+  border: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 20px;
+}
+.event-picker legend {
+  color: var(--text-2);
+  margin-bottom: 6px;
+  width: 100%;
+}
+.inline-label {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+
+@media (max-width: 768px) {
+  .notification-row {
+    flex-wrap: wrap;
+  }
+  .notification-row > .badge {
+    min-width: 0;
+  }
+  .channel-row {
+    flex-wrap: wrap;
+  }
+}
+
 /* ── States ────────────────────────────────────────────── */
 
 .state {

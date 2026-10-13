@@ -6,6 +6,8 @@ import { useEffect, useRef, useState } from 'react';
 import {
   Activity,
   AlertTriangle,
+  Bell,
+  BellRing,
   FolderGit2,
   LayoutDashboard,
   KeyRound,
@@ -19,6 +21,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { useAuth } from '@/lib/auth-context';
+import { useApi } from '@/lib/use-api';
 
 const NAV = [
   { href: '/dashboard', label: 'Overview', icon: LayoutDashboard },
@@ -32,6 +35,7 @@ const NAV = [
 const SETTINGS_NAV = [
   { href: '/settings/members', label: 'Members', icon: Users },
   { href: '/settings/integrations', label: 'Integrations', icon: KeyRound },
+  { href: '/settings/notifications', label: 'Notifications', icon: BellRing },
   { href: '/settings/audit-logs', label: 'Audit log', icon: ScrollText },
 ];
 
@@ -120,6 +124,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <strong>{org?.name ?? '—'}</strong>
           </div>
           <div className="user">
+            <NotificationBell />
             <div className="user-meta">
               <strong>{user?.name}</strong>
               <span className="muted small">{role}</span>
@@ -160,6 +165,35 @@ function NavLink({
     >
       <Icon size={16} aria-hidden />
       {label}
+    </Link>
+  );
+}
+
+const BELL_POLL_MS = 30_000;
+
+/** Unread count, refreshed every 30s while the tab is visible and on every navigation. */
+function NotificationBell() {
+  const pathname = usePathname();
+  const { data, reload } = useApi<{ count: number }>('/notifications/unread-count');
+
+  useEffect(() => {
+    reload();
+  }, [pathname, reload]);
+
+  useEffect(() => {
+    const id = setInterval(() => document.visibilityState === 'visible' && reload(), BELL_POLL_MS);
+    return () => clearInterval(id);
+  }, [reload]);
+
+  const count = data?.count ?? 0;
+  return (
+    <Link
+      href="/notifications"
+      className="icon-btn bell"
+      aria-label={count ? `Notifications, ${count} unread` : 'Notifications'}
+    >
+      <Bell size={18} aria-hidden />
+      {count > 0 && <span className="bell-count">{count > 99 ? '99+' : count}</span>}
     </Link>
   );
 }

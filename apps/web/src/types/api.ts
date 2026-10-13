@@ -177,3 +177,45 @@ export interface AuditLogEntry {
   createdAt: string;
   actorUser: { id: string; email: string; name: string } | null;
 }
+
+export type AlertEventType =
+  | 'WORKFLOW_FAILURE'
+  | 'DEPLOYMENT_FAILURE'
+  | 'SERVICE_DOWN'
+  | 'SERVICE_RECOVERED'
+  | 'INCIDENT_OPENED'
+  | 'INCIDENT_RESOLVED';
+
+export interface AppNotification {
+  id: string;
+  eventType: AlertEventType;
+  title: string;
+  body: string | null;
+  link: string | null;
+  createdAt: string;
+  readAt: string | null;
+}
+
+export interface NotificationChannel {
+  id: string;
+  name: string;
+  type: 'SLACK' | 'WEBHOOK';
+  events: AlertEventType[];
+  enabled: boolean;
+  destination: string;
+  createdAt: string;
+  deliveryCount?: number;
+}
+
+export interface NotificationDelivery {
+  id: string;
+  title: string;
+  status: 'PENDING' | 'SENT' | 'FAILED';
+  attemptCount: number;
+  lastAttemptAt: string | null;
+  nextAttemptAt: string | null;
+  sentAt: string | null;
+  errorMsg: string | null;
+  createdAt: string;
+  channel: { id: string; name: string; type: string };
+}
