@@ -27,6 +27,16 @@ async function main() {
       });
     }
     console.log(`Encrypted ${legacy.length} of ${repos.length} webhook secret(s).`);
+
+    const channels = await prisma.notificationChannel.findMany({ select: { id: true, configEncrypted: true } });
+    const legacyChannels = channels.filter((c) => !SecretBox.isEncrypted(c.configEncrypted));
+    for (const channel of legacyChannels) {
+      await prisma.notificationChannel.update({
+        where: { id: channel.id },
+        data: { configEncrypted: box.encrypt(channel.configEncrypted) },
+      });
+    }
+    console.log(`Encrypted ${legacyChannels.length} of ${channels.length} notification channel config(s).`);
   } finally {
     await prisma.$disconnect();
   }

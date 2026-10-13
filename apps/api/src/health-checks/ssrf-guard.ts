@@ -134,18 +134,35 @@ export interface SafeGetOptions {
  * downloaded, so response size cannot exhaust memory. Redirects are not followed;
  * a 3xx is reported as-is so a public endpoint cannot bounce the checker inward.
  */
-export async function safeHttpGet(raw: string, opts: SafeGetOptions): Promise<SafeGetResult> {
+export function safeHttpGet(raw: string, opts: SafeGetOptions): Promise<SafeGetResult> {
+  return safeHttpRequest(raw, { ...opts, method: 'GET' });
+}
+
+/** JSON POST with the same protections as safeHttpGet (used for outbound notifications). */
+export function safeHttpPostJson(raw: string, payload: unknown, opts: SafeGetOptions): Promise<SafeGetResult> {
+  return safeHttpRequest(raw, { ...opts, method: 'POST', body: JSON.stringify(payload) });
+}
+
+async function safeHttpRequest(
+  raw: string,
+  opts: SafeGetOptions & { method: 'GET' | 'POST'; body?: string },
+): Promise<SafeGetResult> {
   const isBlocked = opts.isBlocked ?? isBlockedAddress;
   const url = assertAllowedUrl(raw, isBlocked);
   const client = url.protocol === 'https:' ? https : http;
+  const headers: Record<string, string> = { 'User-Agent': 'DeployWatch/1.0', Accept: '*/*' };
+  if (opts.body !== undefined) {
+    headers['Content-Type'] = 'application/json';
+    headers['Content-Length'] = String(Buffer.byteLength(opts.body));
+  }
 
   return new Promise((resolve, reject) => {
     const req = client.request(
       url,
       {
-        method: 'GET',
+        method: opts.method,
         lookup: makeSafeLookup(opts.lookup, isBlocked),
-        headers: { 'User-Agent': 'DeployWatch-HealthCheck/1.0', Accept: '*/*' },
+        headers,
       },
       (res) => {
         clearTimeout(deadline);
@@ -159,7 +176,7 @@ export async function safeHttpGet(raw: string, opts: SafeGetOptions): Promise<Sa
       clearTimeout(deadline);
       reject(err);
     });
-    req.end();
+    req.end(opts.body);
   });
 }
 

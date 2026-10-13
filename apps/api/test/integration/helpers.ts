@@ -23,9 +23,13 @@ function assertTestDatabase() {
   }
 }
 
-export async function createTestApp(): Promise<{ app: INestApplication; prisma: PrismaService }> {
+export async function createTestApp(
+  overrides: { provide: unknown; useValue: unknown }[] = [],
+): Promise<{ app: INestApplication; prisma: PrismaService }> {
   assertTestDatabase();
-  const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
+  let builder = Test.createTestingModule({ imports: [AppModule] });
+  for (const o of overrides) builder = builder.overrideProvider(o.provide).useValue(o.useValue);
+  const moduleRef = await builder.compile();
   const app = moduleRef.createNestApplication<NestExpressApplication>(APP_OPTIONS);
   app.useLogger(false);
   configureApp(app);

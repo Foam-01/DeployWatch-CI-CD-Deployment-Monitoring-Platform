@@ -6,6 +6,7 @@ import { HealthCheckStatus, Service } from '@prisma/client';
 import { evaluateHealth } from './health-state';
 import { safeHttpGet, TimeoutError } from './ssrf-guard';
 import { runsBackgroundJobs } from '../common/process-role';
+import { NotifierService } from '../notifications/notifier.service';
 
 @Injectable()
 export class HealthCheckSchedulerService {
@@ -16,6 +17,7 @@ export class HealthCheckSchedulerService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
+    private readonly notifier: NotifierService,
   ) {
     this.concurrency = Number(this.config.get('HEALTH_CHECK_CONCURRENCY', 10)) || 10;
   }
@@ -108,47 +110,57 @@ export class HealthCheckSchedulerService {
   private async handleDown(service: Service) {
     this.logger.warn(`Service DOWN: ${service.name} (${service.healthUrl})`);
 
-    // Check if there's already an open incident
+    // One open incident per service: repeated failures while DOWN do not open more.
     const existingIncident = await this.prisma.incident.findFirst({
-      where: {
-        serviceId: service.id,
-        status: { not: 'RESOLVED' },
-      },
+      where: { serviceId: service.id, status: { not: 'RESOLVED' } },
     });
-
     if (existingIncident) return;
 
-    // Create new incident
-    const incident = await this.prisma.incident.create({
-      data: {
-        serviceId: service.id,
-        title: `Service Down: ${service.name}`,
-        description: `Automatic incident created after ${service.failureThreshold} consecutive failed health checks.`,
-        severity: 'HIGH',
-        status: 'OPEN',
-      },
+    const incident = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.incident.create({
+        data: {
+          serviceId: service.id,
+          title: `Service Down: ${service.name}`,
+          description: `Automatic incident created after ${service.failureThreshold} consecutive failed health checks.`,
+          severity: 'HIGH',
+          status: 'OPEN',
+        },
+      });
+      await tx.incidentEvent.create({
+        data: {
+          incidentId: created.id,
+          eventType: 'OPENED',
+          message: `Service failed health check ${service.failureThreshold} times consecutively.`,
+        },
+      });
+      return created;
     });
 
-    await this.prisma.incidentEvent.create({
-      data: {
-        incidentId: incident.id,
-        eventType: 'OPENED',
-        message: `Service failed health check ${service.failureThreshold} times consecutively.`,
-      },
+    const organizationId = await this.organizationOf(service);
+    await this.notifier.emitSafely({
+      organizationId,
+      type: 'SERVICE_DOWN',
+      eventKey: `service_down:${incident.id}`,
+      title: `${service.name} is down`,
+      body: `${service.failureThreshold} consecutive failed checks on ${service.healthUrl}`,
+      link: `/services/${service.id}`,
+    });
+    await this.notifier.emitSafely({
+      organizationId,
+      type: 'INCIDENT_OPENED',
+      eventKey: `incident_opened:${incident.id}`,
+      title: incident.title,
+      body: incident.description ?? undefined,
+      link: `/incidents/${incident.id}`,
     });
   }
 
   private async handleRecovery(service: Service) {
     this.logger.log(`Service RECOVERED: ${service.name}`);
 
-    // Find open incident and suggest resolution
     const openIncident = await this.prisma.incident.findFirst({
-      where: {
-        serviceId: service.id,
-        status: { not: 'RESOLVED' },
-      },
+      where: { serviceId: service.id, status: { not: 'RESOLVED' } },
     });
-
     if (openIncident) {
       await this.prisma.incidentEvent.create({
         data: {
@@ -158,5 +170,25 @@ export class HealthCheckSchedulerService {
         },
       });
     }
+
+    await this.notifier.emitSafely({
+      organizationId: await this.organizationOf(service),
+      type: 'SERVICE_RECOVERED',
+      // Tied to the incident it recovers from, or to this moment when there was none.
+      eventKey: `service_recovered:${openIncident?.id ?? `${service.id}:${Date.now()}`}`,
+      title: `${service.name} recovered`,
+      body: openIncident
+        ? `${service.successThreshold} consecutive passing checks. The incident is still open; resolve it when you are satisfied.`
+        : `${service.successThreshold} consecutive passing checks.`,
+      link: openIncident ? `/incidents/${openIncident.id}` : `/services/${service.id}`,
+    });
+  }
+
+  private async organizationOf(service: Service): Promise<string> {
+    const project = await this.prisma.project.findUniqueOrThrow({
+      where: { id: service.projectId },
+      select: { organizationId: true },
+    });
+    return project.organizationId;
   }
 }

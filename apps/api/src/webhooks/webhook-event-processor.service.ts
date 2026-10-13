@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { DeploymentStatus, Repository, WorkflowStatus } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
+import { NotifierService } from '../notifications/notifier.service';
 import { mapWorkflowConclusion, mapWorkflowStatus, shouldApplyStatus } from './workflow-run-state';
 
 const STATUS_ORDER: WorkflowStatus[] = ['QUEUED', 'IN_PROGRESS', 'COMPLETED'];
@@ -12,18 +13,59 @@ const TERMINAL_DEPLOYMENT: DeploymentStatus[] = ['SUCCESS', 'FAILURE', 'CANCELLE
 export class WebhookEventProcessorService {
   private readonly logger = new Logger(WebhookEventProcessorService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notifier: NotifierService,
+  ) {}
 
   async process(eventType: string, payload: any, repository: Repository) {
     switch (eventType) {
       case 'workflow_run':
-        return this.processWorkflowRun(payload, repository);
+        await this.processWorkflowRun(payload, repository);
+        return this.notifyWorkflowFailure(payload, repository);
       case 'deployment_status':
-        return this.processDeploymentStatus(payload, repository);
+        await this.processDeploymentStatus(payload, repository);
+        return this.notifyDeploymentFailure(payload, repository);
       default:
         // 'ping' and other acknowledged events need no domain update.
         return;
     }
+  }
+
+  /** Emits once per failed run; the eventKey makes retries and redeliveries idempotent. */
+  private async notifyWorkflowFailure(payload: any, repository: Repository) {
+    const run = await this.prisma.workflowRun.findUnique({
+      where: {
+        repositoryId_externalRunId: { repositoryId: repository.id, externalRunId: BigInt(payload.workflow_run.id) },
+      },
+      include: { repository: { select: { project: { select: { organizationId: true, name: true } } } } },
+    });
+    if (!run || run.status !== 'COMPLETED' || !['FAILURE', 'TIMED_OUT'].includes(run.conclusion ?? '')) return;
+    const firstLine = run.commitMessage?.split('\n')[0];
+    await this.notifier.emit({
+      organizationId: run.repository.project.organizationId,
+      type: 'WORKFLOW_FAILURE',
+      eventKey: `workflow_failure:${run.id}`,
+      title: `${run.workflowName} #${run.runNumber} ${run.conclusion === 'TIMED_OUT' ? 'timed out' : 'failed'}`,
+      body: `${run.repository.project.name} · ${run.branch ?? 'unknown branch'} · ${run.commitSha.slice(0, 7)}${firstLine ? ` — ${firstLine}` : ''}`,
+      link: `/workflow-runs/${run.id}`,
+    });
+  }
+
+  private async notifyDeploymentFailure(payload: any, repository: Repository) {
+    const deployment = await this.prisma.deployment.findFirst({
+      where: { externalDeploymentId: String(payload.deployment.id), projectId: repository.projectId },
+      include: { environment: { select: { name: true } }, project: { select: { organizationId: true, name: true } } },
+    });
+    if (!deployment || deployment.status !== 'FAILURE') return;
+    await this.notifier.emit({
+      organizationId: deployment.project.organizationId,
+      type: 'DEPLOYMENT_FAILURE',
+      eventKey: `deployment_failure:${deployment.id}`,
+      title: `Deploy to ${deployment.environment.name} failed`,
+      body: `${deployment.project.name} · ${deployment.commitSha.slice(0, 7)}${deployment.errorSummary ? ` — ${deployment.errorSummary}` : ''}`,
+      link: `/deployments?projectId=${deployment.projectId}`,
+    });
   }
 
   private async processWorkflowRun(payload: any, repository: Repository) {

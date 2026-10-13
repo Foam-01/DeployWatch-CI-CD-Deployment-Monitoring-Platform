@@ -327,27 +327,39 @@ async function main() {
     },
   });
 
-  // 9. Notification Channels
+  // 9. Notification channel — DEMO placeholder URL, disabled so it never sends.
+  // Replace it with a real Slack incoming webhook in Settings → Notifications.
   await prisma.notificationChannel.create({
     data: {
       organizationId: org.id,
       createdById: adminUser.id,
-      name: '#devops-deployments Slack Channel',
+      name: '#devops-deployments (demo, disabled)',
       type: NotificationChannelType.SLACK,
-      configEncrypted: JSON.stringify({ webhookUrl: 'https://hooks.slack.com/services/T00/B00/XXXX' }),
-      enabled: true,
+      configEncrypted: sealSecret(JSON.stringify({ url: 'https://hooks.slack.com/services/T00000000/B00000000/DEMO' })),
+      enabled: false,
     },
   });
 
-  await prisma.notificationChannel.create({
-    data: {
-      organizationId: org.id,
-      createdById: adminUser.id,
-      name: 'On-Call PagerDuty Email',
-      type: NotificationChannelType.EMAIL,
-      configEncrypted: JSON.stringify({ email: 'oncall@acme.io' }),
-      enabled: true,
-    },
+  // 10. In-app notifications matching the seeded failures, so the bell is not empty in the demo.
+  await prisma.notification.createMany({
+    data: [
+      {
+        organizationId: org.id,
+        eventKey: `workflow_failure:${run2.id}`,
+        eventType: 'WORKFLOW_FAILURE',
+        title: 'CI / Jest & Playwright #143 failed',
+        body: 'Storefront Web · fix/discount-calc · a12bc89',
+        link: `/workflow-runs/${run2.id}`,
+      },
+      {
+        organizationId: org.id,
+        eventKey: `incident_opened:${incident.id}`,
+        eventType: 'INCIDENT_OPENED',
+        title: incident.title,
+        body: incident.description,
+        link: `/incidents/${incident.id}`,
+      },
+    ],
   });
 
   console.log('🎉 DeployWatch seed completed successfully!');

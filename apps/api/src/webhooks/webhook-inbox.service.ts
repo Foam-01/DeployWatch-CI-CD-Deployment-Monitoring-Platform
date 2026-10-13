@@ -3,21 +3,14 @@ import { Cron } from '@nestjs/schedule';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { runsBackgroundJobs } from '../common/process-role';
+import { MAX_ATTEMPTS, STALE_LOCK_MS, backoffMs } from '../common/utils/retry';
 import { WebhookEventProcessorService } from './webhook-event-processor.service';
 
-export const MAX_ATTEMPTS = 5;
-const BASE_BACKOFF_MS = 30_000;
-const MAX_BACKOFF_MS = 60 * 60_000;
-/** A PROCESSING claim older than this belongs to a worker that crashed mid-event. */
-export const STALE_LOCK_MS = 5 * 60_000;
+export { MAX_ATTEMPTS, STALE_LOCK_MS, backoffMs } from '../common/utils/retry';
 /** PENDING rows younger than this are still being handled inline by the request that stored them. */
 export const PENDING_GRACE_MS = 30_000;
 const BATCH_SIZE = 20;
 
-/** Delay before retry N (1-based): 30s, 60s, 120s, 240s … capped at 1h. */
-export function backoffMs(attempt: number): number {
-  return Math.min(BASE_BACKOFF_MS * 2 ** (attempt - 1), MAX_BACKOFF_MS);
-}
 
 /**
  * Database-backed event inbox. Every stored webhook is processed through `claim`,

@@ -1,10 +1,14 @@
 import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
 import { IncidentEventType, IncidentStatus } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
+import { NotifierService } from '../notifications/notifier.service';
 
 @Injectable()
 export class IncidentsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notifier: NotifierService,
+  ) {}
 
   async findAll(organizationId: string, status?: string) {
     const where: any = {
@@ -89,6 +93,17 @@ export class IncidentsService {
       });
       return updated;
     });
+
+    if (status === 'RESOLVED') {
+      await this.notifier.emitSafely({
+        organizationId,
+        type: 'INCIDENT_RESOLVED',
+        eventKey: `incident_resolved:${id}`,
+        title: `Resolved: ${incident.title}`,
+        body: message,
+        link: `/incidents/${id}`,
+      });
+    }
 
     return { data: incident };
   }

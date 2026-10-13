@@ -151,6 +151,7 @@ model User {
   incidentEvents       IncidentEvent[]
   auditLogs            AuditLog[]
   notificationChannels NotificationChannel[]
+  notificationReads    NotificationRead[]
 
   @@map("users")
 }
@@ -167,17 +168,18 @@ model Organization {
   notificationChannels NotificationChannel[]
   webhookEvents        WebhookEvent[]
   auditLogs            AuditLog[]
+  notifications        Notification[]
 
   @@map("organizations")
 }
 
 model Membership {
-  id             String      @id @default(uuid()) @db.Uuid
-  organizationId String      @map("organization_id") @db.Uuid
-  userId         String      @map("user_id") @db.Uuid
+  id             String     @id @default(uuid()) @db.Uuid
+  organizationId String     @map("organization_id") @db.Uuid
+  userId         String     @map("user_id") @db.Uuid
   role           MemberRole
-  createdAt      DateTime    @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt      DateTime    @updatedAt @map("updated_at") @db.Timestamptz
+  createdAt      DateTime   @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime   @updatedAt @map("updated_at") @db.Timestamptz
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -316,23 +318,23 @@ model Deployment {
 // ──────────────────────────────────────────────────────────────────────────────
 
 model Service {
-  id                    String        @id @default(uuid()) @db.Uuid
-  projectId             String        @map("project_id") @db.Uuid
-  environmentId         String?       @map("environment_id") @db.Uuid
-  name                  String
-  healthUrl             String        @map("health_url")
-  intervalSeconds       Int           @default(60) @map("interval_seconds")
-  timeoutMs             Int           @default(5000) @map("timeout_ms")
-  expectedHttpStatus    Int           @default(200) @map("expected_http_status")
-  failureThreshold      Int           @default(3) @map("failure_threshold")
-  successThreshold      Int           @default(2) @map("success_threshold")
-  currentStatus         ServiceStatus @default(UNKNOWN) @map("current_status")
-  consecutiveFailures   Int           @default(0) @map("consecutive_failures")
-  consecutiveSuccesses  Int           @default(0) @map("consecutive_successes")
-  lastCheckedAt         DateTime?     @map("last_checked_at") @db.Timestamptz
-  enabled               Boolean       @default(true)
-  createdAt             DateTime      @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt             DateTime      @updatedAt @map("updated_at") @db.Timestamptz
+  id                   String        @id @default(uuid()) @db.Uuid
+  projectId            String        @map("project_id") @db.Uuid
+  environmentId        String?       @map("environment_id") @db.Uuid
+  name                 String
+  healthUrl            String        @map("health_url")
+  intervalSeconds      Int           @default(60) @map("interval_seconds")
+  timeoutMs            Int           @default(5000) @map("timeout_ms")
+  expectedHttpStatus   Int           @default(200) @map("expected_http_status")
+  failureThreshold     Int           @default(3) @map("failure_threshold")
+  successThreshold     Int           @default(2) @map("success_threshold")
+  currentStatus        ServiceStatus @default(UNKNOWN) @map("current_status")
+  consecutiveFailures  Int           @default(0) @map("consecutive_failures")
+  consecutiveSuccesses Int           @default(0) @map("consecutive_successes")
+  lastCheckedAt        DateTime?     @map("last_checked_at") @db.Timestamptz
+  enabled              Boolean       @default(true)
+  createdAt            DateTime      @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt            DateTime      @updatedAt @map("updated_at") @db.Timestamptz
 
   project      Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
   environment  Environment?  @relation(fields: [environmentId], references: [id], onDelete: SetNull)
@@ -418,19 +420,21 @@ model AlertRule {
 }
 
 model NotificationChannel {
-  id             String                  @id @default(uuid()) @db.Uuid
-  organizationId String                  @map("organization_id") @db.Uuid
-  createdById    String?                 @map("created_by_id") @db.Uuid
-  name           String
-  type           NotificationChannelType
-  configEncrypted String                @map("config_encrypted")
-  enabled        Boolean                 @default(true)
-  createdAt      DateTime                @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt      DateTime                @updatedAt @map("updated_at") @db.Timestamptz
+  id              String                  @id @default(uuid()) @db.Uuid
+  organizationId  String                  @map("organization_id") @db.Uuid
+  createdById     String?                 @map("created_by_id") @db.Uuid
+  name            String
+  type            NotificationChannelType
+  configEncrypted String                  @map("config_encrypted")
+  /// Events this channel receives; empty means every event.
+  events          AlertEventType[]        @default([])
+  enabled         Boolean                 @default(true)
+  createdAt       DateTime                @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime                @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization   Organization             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  createdBy      User?                    @relation(fields: [createdById], references: [id], onDelete: SetNull)
-  deliveries     NotificationDelivery[]
+  organization Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy    User?                  @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  deliveries   NotificationDelivery[]
 
   @@index([organizationId, enabled])
   @@map("notification_channels")
@@ -447,11 +451,15 @@ model NotificationDelivery {
   lastAttemptAt  DateTime?          @map("last_attempt_at") @db.Timestamptz
   sentAt         DateTime?          @map("sent_at") @db.Timestamptz
   errorMsg       String?            @map("error_msg")
+  /// When a FAILED delivery is retried next; null once retries are exhausted.
+  nextAttemptAt  DateTime?          @map("next_attempt_at") @db.Timestamptz
+  lockedAt       DateTime?          @map("locked_at") @db.Timestamptz
   createdAt      DateTime           @default(now()) @map("created_at") @db.Timestamptz
   updatedAt      DateTime           @updatedAt @map("updated_at") @db.Timestamptz
 
   channel NotificationChannel @relation(fields: [channelId], references: [id], onDelete: Cascade)
 
+  @@index([status, nextAttemptAt])
   @@index([channelId, status])
   @@index([status, createdAt(sort: Desc)])
   @@map("notification_deliveries")
@@ -487,6 +495,41 @@ model WebhookEvent {
   @@index([processingStatus, nextAttemptAt])
   @@index([organizationId, receivedAt(sort: Desc)])
   @@map("webhook_events")
+}
+
+/// In-app notification shown to every member of the organization.
+model Notification {
+  id             String         @id @default(uuid()) @db.Uuid
+  organizationId String         @map("organization_id") @db.Uuid
+  /// Stable key for the underlying event, e.g. "workflow_failure:<runId>"; prevents duplicates on retries.
+  eventKey       String         @map("event_key")
+  eventType      AlertEventType @map("event_type")
+  title          String
+  body           String?
+  /// Relative app path to the affected resource, e.g. /incidents/<id>
+  link           String?
+  createdAt      DateTime       @default(now()) @map("created_at") @db.Timestamptz
+
+  organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  reads        NotificationRead[]
+
+  @@unique([organizationId, eventKey])
+  @@index([organizationId, createdAt(sort: Desc)])
+  @@map("notifications")
+}
+
+/// Per-user read state; a missing row means unread.
+model NotificationRead {
+  notificationId String   @map("notification_id") @db.Uuid
+  userId         String   @map("user_id") @db.Uuid
+  readAt         DateTime @default(now()) @map("read_at") @db.Timestamptz
+
+  notification Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([notificationId, userId])
+  @@index([userId])
+  @@map("notification_reads")
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
