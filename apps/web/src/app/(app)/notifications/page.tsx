@@ -29,6 +29,7 @@ export default function NotificationsPage() {
     try {
       await api.post('/notifications/read', {});
       reload();
+      window.dispatchEvent(new Event('deploywatch:notifications-read'));
     } finally {
       setMarking(false);
     }

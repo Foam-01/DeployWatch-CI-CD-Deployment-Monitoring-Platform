@@ -25,11 +25,24 @@ export default async function globalSetup() {
       where: { email: 'admin@deploywatch.dev' },
       include: { memberships: true },
     });
-    const viewer = await prisma.user.create({
-      data: { email: VIEWER.email, name: 'Read Only', passwordHash: admin.passwordHash },
+    const viewer = await prisma.user.upsert({
+      where: { email: VIEWER.email },
+      update: { name: 'Read Only', passwordHash: admin.passwordHash },
+      create: { email: VIEWER.email, name: 'Read Only', passwordHash: admin.passwordHash },
     });
-    await prisma.membership.create({
-      data: { organizationId: admin.memberships[0].organizationId, userId: viewer.id, role: 'VIEWER' },
+    await prisma.membership.upsert({
+      where: {
+        organizationId_userId: {
+          organizationId: admin.memberships[0].organizationId,
+          userId: viewer.id,
+        },
+      },
+      update: { role: 'VIEWER' },
+      create: {
+        organizationId: admin.memberships[0].organizationId,
+        userId: viewer.id,
+        role: 'VIEWER',
+      },
     });
   } finally {
     await prisma.$disconnect();

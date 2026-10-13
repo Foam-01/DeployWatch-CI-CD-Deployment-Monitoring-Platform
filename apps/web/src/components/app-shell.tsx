@@ -181,6 +181,12 @@ function NotificationBell() {
   }, [pathname, reload]);
 
   useEffect(() => {
+    const onNotificationsRead = () => reload();
+    window.addEventListener('deploywatch:notifications-read', onNotificationsRead);
+    return () => window.removeEventListener('deploywatch:notifications-read', onNotificationsRead);
+  }, [reload]);
+
+  useEffect(() => {
     const id = setInterval(() => document.visibilityState === 'visible' && reload(), BELL_POLL_MS);
     return () => clearInterval(id);
   }, [reload]);
