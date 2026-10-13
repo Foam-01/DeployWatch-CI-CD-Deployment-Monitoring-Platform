@@ -20,8 +20,11 @@ export class WorkflowRunsController {
 
   @Get('workflow-runs/:id')
   @ApiOperation({ summary: 'Get workflow run detail' })
-  findOne(@Param('id', ParseUUIDPipe) id: string) {
-    return this.workflowRunsService.findOne(id);
+  findOne(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser('organizationId') orgId: string,
+  ) {
+    return this.workflowRunsService.findOne(id, orgId);
   }
 
   @Get('projects/:id/workflow-runs')

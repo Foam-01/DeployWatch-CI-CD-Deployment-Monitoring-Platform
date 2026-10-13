@@ -1,12 +1,14 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
+import { parseLimit } from '../common/utils/pagination';
 
 @Injectable()
 export class WorkflowRunsService {
   constructor(private readonly prisma: PrismaService) {}
 
   async findAll(organizationId: string, query: any) {
-    const { projectId, status, conclusion, branch, limit = 20, cursor } = query;
+    const { projectId, status, conclusion, branch, cursor } = query;
+    const parsedLimit = parseLimit(query.limit);
 
     const where: any = {
       repository: { project: { organizationId } },
@@ -19,7 +21,7 @@ export class WorkflowRunsService {
 
     const runs = await this.prisma.workflowRun.findMany({
       where,
-      take: (limit ?? 20) + 1,
+      take: parsedLimit + 1,
       ...(cursor && { cursor: { id: cursor }, skip: 1 }),
       orderBy: { createdAt: 'desc' },
       include: {
@@ -29,7 +31,6 @@ export class WorkflowRunsService {
       },
     });
 
-    const parsedLimit = limit ?? 20;
     const hasMore = runs.length > parsedLimit;
     const items = hasMore ? runs.slice(0, parsedLimit) : runs;
 
@@ -54,9 +55,9 @@ export class WorkflowRunsService {
     };
   }
 
-  async findOne(id: string) {
-    const run = await this.prisma.workflowRun.findUniqueOrThrow({
-      where: { id },
+  async findOne(id: string, organizationId: string) {
+    const run = await this.prisma.workflowRun.findFirstOrThrow({
+      where: { id, repository: { project: { organizationId } } },
       include: {
         repository: {
           select: { fullName: true, project: { select: { id: true, name: true } } },

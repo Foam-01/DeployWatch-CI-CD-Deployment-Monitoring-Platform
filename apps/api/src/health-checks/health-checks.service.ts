@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
+import { parseLimit } from '../common/utils/pagination';
 import { CreateServiceDto } from './dto/create-service.dto';
 import { UpdateServiceDto } from './dto/update-service.dto';
 
@@ -50,7 +51,34 @@ export class HealthChecksService {
     return { data: service };
   }
 
-  async updateService(id: string, dto: UpdateServiceDto) {
+  async getAllServices(organizationId: string) {
+    const services = await this.prisma.service.findMany({
+      where: { project: { organizationId } },
+      include: {
+        environment: { select: { name: true } },
+        project: { select: { id: true, name: true } },
+        healthChecks: { orderBy: { checkedAt: 'desc' }, take: 1, select: { latencyMs: true, httpStatus: true } },
+      },
+      orderBy: { name: 'asc' },
+    });
+    return { data: services };
+  }
+
+  async getService(id: string, organizationId: string) {
+    const service = await this.prisma.service.findFirst({
+      where: { id, project: { organizationId } },
+      include: {
+        environment: { select: { name: true } },
+        project: { select: { id: true, name: true } },
+        incidents: { orderBy: { openedAt: 'desc' }, take: 10 },
+      },
+    });
+    if (!service) throw new NotFoundException('Service not found.');
+    return { data: service };
+  }
+
+  async updateService(id: string, organizationId: string, dto: UpdateServiceDto) {
+    await this.getService(id, organizationId);
     const service = await this.prisma.service.update({
       where: { id },
       data: dto,
@@ -58,11 +86,12 @@ export class HealthChecksService {
     return { data: service };
   }
 
-  async getHealthHistory(serviceId: string, limit = 100) {
+  async getHealthHistory(serviceId: string, organizationId: string, limit?: unknown) {
+    await this.getService(serviceId, organizationId);
     const checks = await this.prisma.healthCheck.findMany({
       where: { serviceId },
       orderBy: { checkedAt: 'desc' },
-      take: limit,
+      take: parseLimit(limit, 100),
     });
     return { data: checks };
   }

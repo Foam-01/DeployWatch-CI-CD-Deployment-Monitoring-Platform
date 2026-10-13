@@ -3,6 +3,7 @@ import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { OrgGuard } from '../common/guards/org.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { assertWritableRole } from '../common/utils/assert-writable-role';
 import { IncidentsService } from './incidents.service';
 
 @ApiTags('incidents')
@@ -23,32 +24,44 @@ export class IncidentsController {
 
   @Get(':id')
   @ApiOperation({ summary: 'Get incident details' })
-  findOne(@Param('id', ParseUUIDPipe) id: string) {
-    return this.incidentsService.findOne(id);
+  findOne(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser('organizationId') organizationId: string,
+  ) {
+    return this.incidentsService.findOne(id, organizationId);
   }
 
   @Post(':id/acknowledge')
   @ApiOperation({ summary: 'Acknowledge incident' })
   acknowledge(
     @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser('organizationId') organizationId: string,
+    @CurrentUser('memberRole') role: string,
     @CurrentUser('sub') userId: string,
   ) {
-    return this.incidentsService.acknowledge(id, userId);
+    assertWritableRole(role);
+    return this.incidentsService.acknowledge(id, organizationId, userId);
   }
 
   @Post(':id/resolve')
   @ApiOperation({ summary: 'Resolve incident' })
   resolve(
     @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser('organizationId') organizationId: string,
+    @CurrentUser('memberRole') role: string,
     @CurrentUser('sub') userId: string,
     @Body('message') message?: string,
   ) {
-    return this.incidentsService.resolve(id, userId, message);
+    assertWritableRole(role);
+    return this.incidentsService.resolve(id, organizationId, userId, message);
   }
 
   @Get(':id/events')
   @ApiOperation({ summary: 'Get incident event timeline' })
-  getEvents(@Param('id', ParseUUIDPipe) id: string) {
-    return this.incidentsService.getEvents(id);
+  getEvents(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser('organizationId') organizationId: string,
+  ) {
+    return this.incidentsService.getEvents(id, organizationId);
   }
 }

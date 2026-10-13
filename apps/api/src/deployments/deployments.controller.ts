@@ -18,6 +18,12 @@ export class DeploymentsController {
     return this.deploymentsService.getDashboardOverview(orgId);
   }
 
+  @Get('deployments')
+  @ApiOperation({ summary: 'Search deployments across the organization' })
+  findAll(@CurrentUser('organizationId') orgId: string, @Query() query: any) {
+    return this.deploymentsService.findAll(orgId, query);
+  }
+
   @Get('projects/:id/deployments')
   @ApiOperation({ summary: 'Get deployments for a project' })
   findByProject(
@@ -30,7 +36,10 @@ export class DeploymentsController {
 
   @Get('deployments/:id')
   @ApiOperation({ summary: 'Get deployment detail' })
-  findOne(@Param('id', ParseUUIDPipe) id: string) {
-    return this.deploymentsService.findOne(id);
+  findOne(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser('organizationId') orgId: string,
+  ) {
+    return this.deploymentsService.findOne(id, orgId);
   }
 }

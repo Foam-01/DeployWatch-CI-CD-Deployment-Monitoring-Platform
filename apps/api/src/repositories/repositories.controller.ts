@@ -1,9 +1,19 @@
-import { Controller, Get, Post, Delete, Param, Body, UseGuards, ParseUUIDPipe } from '@nestjs/common';
+import {
+  Controller, Get, Post, Delete, Param, Body, UseGuards, ParseUUIDPipe, ForbiddenException,
+} from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { OrgGuard } from '../common/guards/org.guard';
+import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { RepositoriesService } from './repositories.service';
-import { RepositoryProvider } from '@prisma/client';
+import { CreateRepositoryDto } from './dto/create-repository.dto';
+
+/** Only Owners and Admins may manage repository integrations. */
+function assertIntegrationManager(role: string | undefined) {
+  if (role !== 'OWNER' && role !== 'ADMIN') {
+    throw new ForbiddenException('Only owners and admins can manage repository integrations.');
+  }
+}
 
 @ApiTags('repositories')
 @ApiBearerAuth()
@@ -14,31 +24,44 @@ export class RepositoriesController {
 
   @Get()
   @ApiOperation({ summary: 'List repositories in project' })
-  async findByProject(@Param('projectId', ParseUUIDPipe) projectId: string) {
-    return this.repositoriesService.findByProject(projectId);
+  findByProject(
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @CurrentUser('organizationId') organizationId: string,
+  ) {
+    return this.repositoriesService.findByProject(projectId, organizationId);
   }
 
   @Get(':id')
   @ApiOperation({ summary: 'Get repository details' })
-  async findOne(@Param('id', ParseUUIDPipe) id: string) {
-    return this.repositoriesService.findOne(id);
+  findOne(
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser('organizationId') organizationId: string,
+  ) {
+    return this.repositoriesService.findOne(id, projectId, organizationId);
   }
 
   @Post()
-  @ApiOperation({ summary: 'Link repository to project' })
-  async create(
+  @ApiOperation({ summary: 'Link repository to project (returns webhook secret once)' })
+  create(
     @Param('projectId', ParseUUIDPipe) projectId: string,
-    @Body() body: { fullName: string; externalRepoId: string; provider?: RepositoryProvider; defaultBranch?: string },
+    @CurrentUser('organizationId') organizationId: string,
+    @CurrentUser('memberRole') role: string,
+    @Body() dto: CreateRepositoryDto,
   ) {
-    return this.repositoriesService.create({
-      ...body,
-      projectId,
-    });
+    assertIntegrationManager(role);
+    return this.repositoriesService.create(projectId, organizationId, dto);
   }
 
   @Delete(':id')
   @ApiOperation({ summary: 'Unlink repository' })
-  async remove(@Param('id', ParseUUIDPipe) id: string) {
-    return this.repositoriesService.remove(id);
+  remove(
+    @Param('projectId', ParseUUIDPipe) projectId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser('organizationId') organizationId: string,
+    @CurrentUser('memberRole') role: string,
+  ) {
+    assertIntegrationManager(role);
+    return this.repositoriesService.remove(id, projectId, organizationId);
   }
 }

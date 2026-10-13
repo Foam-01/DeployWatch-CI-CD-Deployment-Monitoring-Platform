@@ -4,6 +4,7 @@ import {
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { assertWritableRole } from '../common/utils/assert-writable-role';
 import { ProjectsService } from './projects.service';
 import { CreateProjectDto } from './dto/create-project.dto';
 import { UpdateProjectDto } from './dto/update-project.dto';
@@ -30,8 +31,10 @@ export class ProjectsController {
   @ApiOperation({ summary: 'Create a new project' })
   create(
     @CurrentUser('organizationId') organizationId: string,
+    @CurrentUser('memberRole') role: string,
     @Body() dto: CreateProjectDto,
   ) {
+    assertWritableRole(role);
     return this.projectsService.create(organizationId, dto);
   }
 
@@ -49,8 +52,10 @@ export class ProjectsController {
   update(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser('organizationId') organizationId: string,
+    @CurrentUser('memberRole') role: string,
     @Body() dto: UpdateProjectDto,
   ) {
+    assertWritableRole(role);
     return this.projectsService.update(id, organizationId, dto);
   }
 
@@ -59,7 +64,9 @@ export class ProjectsController {
   archive(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser('organizationId') organizationId: string,
+    @CurrentUser('memberRole') role: string,
   ) {
+    assertWritableRole(role);
     return this.projectsService.archive(id, organizationId);
   }
 

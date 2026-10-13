@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
+import { PUBLIC_REPOSITORY_SELECT } from '../repositories/repositories.service';
 import { CreateProjectDto } from './dto/create-project.dto';
 import { UpdateProjectDto } from './dto/update-project.dto';
 import { ProjectQueryDto } from './dto/project-query.dto';
@@ -47,7 +48,7 @@ export class ProjectsService {
     const project = await this.prisma.project.findFirst({
       where: { id, organizationId },
       include: {
-        repositories: true,
+        repositories: { select: PUBLIC_REPOSITORY_SELECT },
         environments: true,
         services: {
           include: { _count: { select: { healthChecks: true, incidents: true } } },

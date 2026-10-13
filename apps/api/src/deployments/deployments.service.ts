@@ -1,17 +1,23 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
+import { parseLimit } from '../common/utils/pagination';
 
 @Injectable()
 export class DeploymentsService {
   constructor(private readonly prisma: PrismaService) {}
 
   async findByProject(projectId: string, organizationId: string, query: any = {}) {
-    const { limit = 20, cursor, environmentId, status } = query;
-
     const project = await this.prisma.project.findFirst({ where: { id: projectId, organizationId } });
-    if (!project) return { data: [] };
+    if (!project) throw new NotFoundException('Project not found.');
+    return this.findAll(organizationId, { ...query, projectId });
+  }
 
-    const where: any = { projectId };
+  async findAll(organizationId: string, query: any = {}) {
+    const { cursor, environmentId, status, projectId } = query;
+    const limit = parseLimit(query.limit);
+
+    const where: any = { project: { organizationId } };
+    if (projectId) where.projectId = projectId;
     if (environmentId) where.environmentId = environmentId;
     if (status) where.status = status;
 
@@ -22,6 +28,7 @@ export class DeploymentsService {
       orderBy: { createdAt: 'desc' },
       include: {
         environment: { select: { name: true, isProduction: true } },
+        project: { select: { id: true, name: true } },
         workflowRun: { select: { workflowName: true, runNumber: true, htmlUrl: true } },
       },
     });
@@ -35,9 +42,9 @@ export class DeploymentsService {
     };
   }
 
-  async findOne(id: string) {
-    const deployment = await this.prisma.deployment.findUniqueOrThrow({
-      where: { id },
+  async findOne(id: string, organizationId: string) {
+    const deployment = await this.prisma.deployment.findFirstOrThrow({
+      where: { id, project: { organizationId } },
       include: {
         environment: true,
         project: { select: { name: true, id: true } },

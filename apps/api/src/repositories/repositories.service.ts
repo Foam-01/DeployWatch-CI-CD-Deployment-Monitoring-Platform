@@ -1,59 +1,75 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { randomBytes } from 'crypto';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { RepositoryProvider } from '@prisma/client';
+import { CreateRepositoryDto } from './dto/create-repository.dto';
+
+/** Columns safe to return to clients — never includes webhook secrets or tokens. */
+export const PUBLIC_REPOSITORY_SELECT = {
+  id: true,
+  projectId: true,
+  provider: true,
+  externalRepoId: true,
+  fullName: true,
+  defaultBranch: true,
+  createdAt: true,
+  updatedAt: true,
+} as const;
 
 @Injectable()
 export class RepositoriesService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async findByProject(projectId: string) {
-    return this.prisma.repository.findMany({
+  private async assertProjectInOrg(projectId: string, organizationId: string) {
+    const project = await this.prisma.project.findFirst({ where: { id: projectId, organizationId } });
+    if (!project) throw new NotFoundException('Project not found.');
+  }
+
+  async findByProject(projectId: string, organizationId: string) {
+    await this.assertProjectInOrg(projectId, organizationId);
+    const repos = await this.prisma.repository.findMany({
       where: { projectId },
-      include: {
-        _count: {
-          select: { workflowRuns: true },
-        },
-      },
+      select: { ...PUBLIC_REPOSITORY_SELECT, _count: { select: { workflowRuns: true } } },
       orderBy: { createdAt: 'desc' },
     });
+    return { data: repos };
   }
 
-  async findOne(id: string) {
-    const repo = await this.prisma.repository.findUnique({
-      where: { id },
-      include: {
-        project: true,
-        workflowRuns: {
-          orderBy: { createdAt: 'desc' },
-          take: 10,
-        },
+  async findOne(id: string, projectId: string, organizationId: string) {
+    const repo = await this.prisma.repository.findFirst({
+      where: { id, projectId, project: { organizationId } },
+      select: {
+        ...PUBLIC_REPOSITORY_SELECT,
+        workflowRuns: { orderBy: { createdAt: 'desc' }, take: 10 },
       },
     });
-    if (!repo) throw new NotFoundException('Repository not found');
-    return repo;
+    if (!repo) throw new NotFoundException('Repository not found.');
+    return { data: repo };
   }
 
-  async create(data: {
-    projectId: string;
-    fullName: string;
-    provider?: RepositoryProvider;
-    externalRepoId: string;
-    defaultBranch?: string;
-    webhookSecret?: string;
-  }) {
-    return this.prisma.repository.create({
+  async create(projectId: string, organizationId: string, dto: CreateRepositoryDto) {
+    await this.assertProjectInOrg(projectId, organizationId);
+    const webhookSecret = randomBytes(32).toString('hex');
+
+    const repo = await this.prisma.repository.create({
       data: {
-        projectId: data.projectId,
-        fullName: data.fullName,
-        provider: data.provider || RepositoryProvider.GITHUB,
-        externalRepoId: data.externalRepoId,
-        defaultBranch: data.defaultBranch || 'main',
-        webhookSecret: data.webhookSecret || 'whsec_' + Math.random().toString(36).substring(2, 15),
+        projectId,
+        fullName: dto.fullName,
+        provider: RepositoryProvider.GITHUB,
+        externalRepoId: dto.externalRepoId,
+        defaultBranch: dto.defaultBranch || 'main',
+        webhookSecret,
       },
+      select: PUBLIC_REPOSITORY_SELECT,
     });
+
+    // The secret is returned exactly once so the user can paste it into GitHub.
+    return { data: { ...repo, webhookSecret } };
   }
 
-  async remove(id: string) {
-    return this.prisma.repository.delete({ where: { id } });
+  async remove(id: string, projectId: string, organizationId: string) {
+    await this.findOne(id, projectId, organizationId);
+    await this.prisma.repository.delete({ where: { id } });
+    return { data: { id } };
   }
 }
