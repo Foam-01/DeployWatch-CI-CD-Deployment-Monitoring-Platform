@@ -9,6 +9,16 @@ import {
 import { Request, Response } from 'express';
 import { Prisma } from '@prisma/client';
 
+function isBodyParserError(e: unknown): e is { status: number; type: string } {
+  return (
+    typeof e === 'object' &&
+    e !== null &&
+    typeof (e as { type?: unknown }).type === 'string' &&
+    (e as { type: string }).type.startsWith('entity.') &&
+    typeof (e as { status?: unknown }).status === 'number'
+  );
+}
+
 @Catch()
 export class HttpExceptionFilter implements ExceptionFilter {
   private readonly logger = new Logger(HttpExceptionFilter.name);
@@ -48,6 +58,11 @@ export class HttpExceptionFilter implements ExceptionFilter {
       } else {
         message = 'Database operation failed.';
       }
+    } else if (isBodyParserError(exception)) {
+      // Raised by express body-parser before reaching a controller (oversized or malformed JSON).
+      statusCode = exception.status;
+      code = statusCode === 413 ? 'PAYLOAD_TOO_LARGE' : 'VALIDATION_ERROR';
+      message = statusCode === 413 ? 'Request body is too large.' : 'Malformed request body.';
     } else if (exception instanceof Error) {
       this.logger.error(`Unhandled error: ${exception.message}`, exception.stack);
     }
@@ -67,6 +82,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
       403: 'FORBIDDEN',
       404: 'NOT_FOUND',
       409: 'CONFLICT',
+      413: 'PAYLOAD_TOO_LARGE',
       422: 'UNPROCESSABLE_ENTITY',
       429: 'RATE_LIMITED',
       500: 'INTERNAL_ERROR',

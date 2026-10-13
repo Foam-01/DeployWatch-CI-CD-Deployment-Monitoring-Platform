@@ -2,6 +2,9 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { ConfigService } from '@nestjs/config';
+import { HealthCheckStatus, Service } from '@prisma/client';
+import { evaluateHealth } from './health-state';
+import { safeHttpGet, TimeoutError } from './ssrf-guard';
 
 @Injectable()
 export class HealthCheckSchedulerService {
@@ -13,7 +16,7 @@ export class HealthCheckSchedulerService {
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
   ) {
-    this.concurrency = this.config.get<number>('HEALTH_CHECK_CONCURRENCY', 10);
+    this.concurrency = Number(this.config.get('HEALTH_CHECK_CONCURRENCY', 10)) || 10;
   }
 
   /**
@@ -60,105 +63,47 @@ export class HealthCheckSchedulerService {
     }
   }
 
-  private async checkService(service: any) {
+  private async checkService(service: Service) {
     const startMs = Date.now();
-    let status: 'PASS' | 'FAIL' | 'TIMEOUT' = 'FAIL';
+    let status: HealthCheckStatus = 'FAIL';
     let httpStatus: number | undefined;
     let errorMsg: string | undefined;
 
     try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), service.timeoutMs);
-
-      try {
-        const response = await fetch(service.healthUrl, {
-          method: 'GET',
-          signal: controller.signal,
-        });
-
-        clearTimeout(timeout);
-        httpStatus = response.status;
-        status = response.status === service.expectedHttpStatus ? 'PASS' : 'FAIL';
-      } catch (err: any) {
-        clearTimeout(timeout);
-        if (err.name === 'AbortError') {
-          status = 'TIMEOUT';
-          errorMsg = `Request timed out after ${service.timeoutMs}ms`;
-        } else {
-          status = 'FAIL';
-          errorMsg = err.message;
-        }
-      }
-    } catch (err: any) {
-      status = 'FAIL';
-      errorMsg = err.message;
+      const res = await safeHttpGet(service.healthUrl, { timeoutMs: service.timeoutMs });
+      httpStatus = res.status;
+      status = res.status === service.expectedHttpStatus ? 'PASS' : 'FAIL';
+      if (status === 'FAIL') errorMsg = `Expected HTTP ${service.expectedHttpStatus}, got ${res.status}`;
+    } catch (err) {
+      status = err instanceof TimeoutError ? 'TIMEOUT' : 'FAIL';
+      errorMsg = err instanceof Error ? err.message : String(err);
     }
 
     const latencyMs = Date.now() - startMs;
 
-    // Persist health check result
     await this.prisma.healthCheck.create({
+      data: { serviceId: service.id, status, httpStatus, latencyMs, errorMsg: errorMsg?.slice(0, 500) },
+    });
+
+    // Timeouts count as failures (spec: "Health Endpoint Timeout ต้องนับเป็นความล้มเหลว").
+    const next = evaluateHealth(service, status === 'PASS');
+    await this.prisma.service.update({
+      where: { id: service.id },
       data: {
-        serviceId: service.id,
-        status,
-        httpStatus,
-        latencyMs,
-        errorMsg,
+        lastCheckedAt: new Date(),
+        currentStatus: next.currentStatus,
+        consecutiveFailures: next.consecutiveFailures,
+        consecutiveSuccesses: next.consecutiveSuccesses,
       },
     });
 
-    // Update service counters and status
-    await this.updateServiceStatus(service, status);
+    if (next.event === 'WENT_DOWN') await this.handleDown(service);
+    if (next.event === 'RECOVERED') await this.handleRecovery(service);
 
-    this.logger.debug(
-      `[${service.name}] ${status} | ${httpStatus ?? 'N/A'} | ${latencyMs}ms`,
-    );
+    this.logger.debug(`[${service.name}] ${status} | ${httpStatus ?? 'N/A'} | ${latencyMs}ms`);
   }
 
-  private async updateServiceStatus(service: any, checkStatus: 'PASS' | 'FAIL' | 'TIMEOUT') {
-    const isPassing = checkStatus === 'PASS';
-
-    const update: any = {
-      lastCheckedAt: new Date(),
-    };
-
-    if (isPassing) {
-      update.consecutiveSuccesses = { increment: 1 };
-      update.consecutiveFailures = 0;
-
-      // Check recovery threshold
-      const newSuccesses = service.consecutiveSuccesses + 1;
-      if (
-        service.currentStatus !== 'HEALTHY' &&
-        newSuccesses >= service.successThreshold
-      ) {
-        update.currentStatus = 'HEALTHY';
-        await this.handleRecovery(service);
-      }
-    } else {
-      update.consecutiveFailures = { increment: 1 };
-      update.consecutiveSuccesses = 0;
-
-      // Check failure threshold
-      const newFailures = service.consecutiveFailures + 1;
-      if (
-        service.currentStatus !== 'DOWN' &&
-        newFailures >= service.failureThreshold
-      ) {
-        update.currentStatus = 'DOWN';
-        await this.handleDown(service);
-      } else if (newFailures >= 1 && service.currentStatus === 'HEALTHY') {
-        update.currentStatus = 'DEGRADED';
-      }
-    }
-
-    await this.prisma.service.update({
-      where: { id: service.id },
-      data: update,
-    });
-  }
-
-  private async handleDown(service: any) {
+  private async handleDown(service: Service) {
     this.logger.warn(`Service DOWN: ${service.name} (${service.healthUrl})`);
 
     // Check if there's already an open incident
@@ -191,7 +136,7 @@ export class HealthCheckSchedulerService {
     });
   }
 
-  private async handleRecovery(service: any) {
+  private async handleRecovery(service: Service) {
     this.logger.log(`Service RECOVERED: ${service.name}`);
 
     // Find open incident and suggest resolution

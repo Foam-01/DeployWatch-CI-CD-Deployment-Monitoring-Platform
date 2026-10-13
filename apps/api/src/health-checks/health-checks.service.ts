@@ -1,4 +1,5 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { assertResolvesToPublicAddress } from './ssrf-guard';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { parseLimit } from '../common/utils/pagination';
 import { CreateServiceDto } from './dto/create-service.dto';
@@ -32,6 +33,8 @@ export class HealthChecksService {
       where: { id: projectId, organizationId },
     });
     if (!project) throw new NotFoundException('Project not found.');
+    await this.assertSafeHealthUrl(dto.healthUrl);
+    if (dto.environmentId) await this.assertEnvironmentInProject(dto.environmentId, projectId);
 
     const service = await this.prisma.service.create({
       data: {
@@ -78,12 +81,30 @@ export class HealthChecksService {
   }
 
   async updateService(id: string, organizationId: string, dto: UpdateServiceDto) {
-    await this.getService(id, organizationId);
+    const { data: existing } = await this.getService(id, organizationId);
+    if (dto.healthUrl) await this.assertSafeHealthUrl(dto.healthUrl);
+    if (dto.environmentId) await this.assertEnvironmentInProject(dto.environmentId, existing.projectId);
     const service = await this.prisma.service.update({
       where: { id },
       data: dto,
     });
     return { data: service };
+  }
+
+  private async assertEnvironmentInProject(environmentId: string, projectId: string) {
+    const env = await this.prisma.environment.findFirst({ where: { id: environmentId, projectId } });
+    if (!env) throw new BadRequestException('environmentId does not belong to this project.');
+  }
+
+  /** Rejects URLs that point at loopback, private, link-local or metadata addresses. */
+  private async assertSafeHealthUrl(url: string) {
+    try {
+      await assertResolvesToPublicAddress(url);
+    } catch (err) {
+      throw new BadRequestException(
+        `healthUrl is not allowed: ${err instanceof Error ? err.message : 'unresolvable host'}`,
+      );
+    }
   }
 
   async getHealthHistory(serviceId: string, organizationId: string, limit?: unknown) {

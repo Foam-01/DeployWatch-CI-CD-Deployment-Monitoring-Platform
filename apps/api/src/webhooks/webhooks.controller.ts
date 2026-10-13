@@ -3,80 +3,58 @@ import {
   Post,
   Param,
   Req,
-  Res,
   HttpCode,
   HttpStatus,
-  Logger,
+  BadRequestException,
+  ParseUUIDPipe,
+  UnauthorizedException,
 } from '@nestjs/common';
-import { Request, Response } from 'express';
+import { RawBodyRequest } from '@nestjs/common/interfaces';
+import { Request } from 'express';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
+import { SkipThrottle } from '@nestjs/throttler';
 import { Public } from '../common/decorators/roles.decorator';
-import { WebhooksService } from './webhooks.service';
+import { InvalidWebhookSignatureError, WebhooksService } from './webhooks.service';
 
 @ApiTags('webhooks')
+@SkipThrottle()
 @Controller('webhooks')
 export class WebhooksController {
-  private readonly logger = new Logger(WebhooksController.name);
-
   constructor(private readonly webhooksService: WebhooksService) {}
 
   /**
-   * GitHub Webhook endpoint.
-   * Must be public — signature validation is performed inside the service.
+   * GitHub webhook endpoint. Public because GitHub cannot send a user token;
+   * authenticity is proven by the HMAC signature instead.
    */
   @Public()
   @Post('github/:repositoryId')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Receive GitHub webhook events' })
-  async handleGitHub(
-    @Param('repositoryId') repositoryId: string,
-    @Req() req: Request,
-    @Res() res: Response,
-  ) {
-    const deliveryId = req.headers['x-github-delivery'] as string;
-    const eventType = req.headers['x-github-event'] as string;
-    const signature = req.headers['x-hub-signature-256'] as string;
+  async handleGitHub(@Param('repositoryId', ParseUUIDPipe) repositoryId: string, @Req() req: RawBodyRequest<Request>) {
+    const deliveryId = req.header('x-github-delivery');
+    const eventType = req.header('x-github-event');
 
     if (!deliveryId || !eventType) {
-      return res.status(HttpStatus.BAD_REQUEST).json({
-        statusCode: 400,
-        code: 'VALIDATION_ERROR',
-        message: 'Missing required GitHub headers.',
-      });
+      throw new BadRequestException('Missing required GitHub headers.');
     }
 
-    // Read raw body for signature verification
-    const rawBody = (req as any).rawBody as Buffer;
-
     try {
-      await this.webhooksService.handleGitHubEvent({
+      const result = await this.webhooksService.handleGitHubEvent({
         repositoryId,
         deliveryId,
         eventType,
-        signature,
-        rawBody,
+        signature: req.header('x-hub-signature-256'),
+        rawBody: req.rawBody,
         payload: req.body,
       });
-
-      // Always acknowledge quickly
-      return res.status(HttpStatus.OK).json({ received: true });
-    } catch (error: any) {
-      this.logger.error(`Webhook error for delivery ${deliveryId}: ${error.message}`);
-
-      if (error.message === 'DUPLICATE_EVENT') {
-        return res.status(HttpStatus.OK).json({ received: true, duplicate: true });
+      // A processing failure is our bug, not GitHub's: acknowledge with 2xx so GitHub
+      // does not retry, and rely on the stored FAILED inbox row for reprocessing.
+      return { received: true, duplicate: result === 'duplicate' };
+    } catch (err) {
+      if (err instanceof InvalidWebhookSignatureError) {
+        throw new UnauthorizedException('Invalid webhook signature.');
       }
-
-      if (error.message === 'INVALID_SIGNATURE') {
-        return res.status(HttpStatus.UNAUTHORIZED).json({
-          statusCode: 401,
-          code: 'UNAUTHORIZED',
-          message: 'Invalid webhook signature.',
-        });
-      }
-
-      // Don't expose internal errors — always return 200 to prevent GitHub retries for our bugs
-      return res.status(HttpStatus.OK).json({ received: true });
+      throw err;
     }
   }
 }

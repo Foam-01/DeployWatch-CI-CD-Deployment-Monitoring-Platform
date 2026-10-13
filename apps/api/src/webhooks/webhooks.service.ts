@@ -1,16 +1,28 @@
 import { Injectable, Logger } from '@nestjs/common';
-import * as crypto from 'crypto';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { WebhookEventProcessorService } from './webhook-event-processor.service';
+import { verifyGitHubSignature } from './github-signature';
 
 export interface GitHubWebhookOptions {
   repositoryId: string;
   deliveryId: string;
   eventType: string;
-  signature: string;
-  rawBody: Buffer;
-  payload: any;
+  signature: string | undefined;
+  rawBody: Buffer | undefined;
+  payload: unknown;
 }
+
+export type WebhookResult = 'processed' | 'duplicate' | 'failed' | 'ignored';
+
+export class InvalidWebhookSignatureError extends Error {
+  constructor() {
+    super('Invalid webhook signature.');
+  }
+}
+
+/** Only these events are persisted; anything else is acknowledged and dropped. */
+const SUPPORTED_EVENTS = new Set(['workflow_run', 'deployment_status', 'ping']);
 
 @Injectable()
 export class WebhooksService {
@@ -21,85 +33,69 @@ export class WebhooksService {
     private readonly processor: WebhookEventProcessorService,
   ) {}
 
-  async handleGitHubEvent(options: GitHubWebhookOptions) {
+  async handleGitHubEvent(options: GitHubWebhookOptions): Promise<WebhookResult> {
     const { repositoryId, deliveryId, eventType, signature, rawBody, payload } = options;
 
-    // 1. Lookup repository + webhook secret
+    // 1. Resolve the integration. The repository identity comes from our own record,
+    //    never from the payload's repository name.
     const repository = await this.prisma.repository.findUnique({
       where: { id: repositoryId },
-      include: { project: { include: { organization: true } } },
+      include: { project: { select: { organizationId: true } } },
     });
 
-    if (!repository) {
-      this.logger.warn(`Webhook received for unknown repository: ${repositoryId}`);
-      return; // Don't error — return 200 to GitHub
+    // 2. Unknown repository or one without a secret cannot be verified: treat exactly
+    //    like a bad signature so callers cannot probe which IDs exist.
+    if (!repository?.webhookSecret || !verifyGitHubSignature(rawBody, signature, repository.webhookSecret)) {
+      throw new InvalidWebhookSignatureError();
     }
 
-    // 2. Verify HMAC-SHA256 signature (constant-time comparison)
-    if (repository.webhookSecret) {
-      this.verifySignature(rawBody, signature, repository.webhookSecret);
+    if (!SUPPORTED_EVENTS.has(eventType)) {
+      this.logger.debug(`Ignoring unsupported event type "${eventType}" (${deliveryId})`);
+      return 'ignored';
     }
 
-    // 3. Deduplicate: upsert WebhookEvent, bail if duplicate
-    const existing = await this.prisma.webhookEvent.findUnique({
-      where: { provider_deliveryId: { provider: 'GITHUB', deliveryId } },
-    });
-
-    if (existing) {
-      throw new Error('DUPLICATE_EVENT');
-    }
-
-    // 4. Persist event to inbox
-    const event = await this.prisma.webhookEvent.create({
-      data: {
-        organizationId: repository.project.organizationId,
-        repositoryId: repository.id,
-        provider: 'GITHUB',
-        deliveryId,
-        eventType,
-        payload,
-        signature,
-        processingStatus: 'PENDING',
-      },
-    });
-
-    // 5. Process synchronously for MVP (could be async worker)
-    // Mark as processing
-    await this.prisma.webhookEvent.update({
-      where: { id: event.id },
-      data: { processingStatus: 'PROCESSING', attemptCount: { increment: 1 } },
-    });
-
+    // 3. Persist to the inbox. The (provider, deliveryId) unique constraint is the
+    //    idempotency guard, so concurrent redeliveries cannot both be stored.
+    let eventId: string;
     try {
-      await this.processor.process(event.id, eventType, payload, repository);
+      const event = await this.prisma.webhookEvent.create({
+        data: {
+          organizationId: repository.project.organizationId,
+          repositoryId: repository.id,
+          provider: 'GITHUB',
+          deliveryId,
+          eventType,
+          payload: payload as Prisma.InputJsonValue,
+          signature,
+          processingStatus: 'PROCESSING',
+          attemptCount: 1,
+        },
+      });
+      eventId = event.id;
+    } catch (err) {
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+        return 'duplicate';
+      }
+      throw err;
+    }
 
+    // 4. Process synchronously for the MVP. Failures are recorded on the inbox row so
+    //    they can be retried later without asking GitHub to redeliver.
+    try {
+      await this.processor.process(eventType, payload, repository);
       await this.prisma.webhookEvent.update({
-        where: { id: event.id },
+        where: { id: eventId },
         data: { processingStatus: 'PROCESSED', processedAt: new Date() },
       });
-    } catch (err: any) {
-      this.logger.error(`Failed to process webhook event ${event.id}: ${err.message}`);
+      return 'processed';
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.error(`Failed to process webhook event ${eventId}: ${message}`);
       await this.prisma.webhookEvent.update({
-        where: { id: event.id },
-        data: { processingStatus: 'FAILED', errorMsg: err.message },
+        where: { id: eventId },
+        data: { processingStatus: 'FAILED', errorMsg: message.slice(0, 1000) },
       });
-    }
-  }
-
-  private verifySignature(rawBody: Buffer, signature: string, secret: string) {
-    const hmac = crypto.createHmac('sha256', secret);
-    hmac.update(rawBody);
-    const expected = `sha256=${hmac.digest('hex')}`;
-
-    // Constant-time comparison to prevent timing attacks
-    const expectedBuf = Buffer.from(expected);
-    const signatureBuf = Buffer.from(signature ?? '');
-
-    if (
-      expectedBuf.length !== signatureBuf.length ||
-      !crypto.timingSafeEqual(expectedBuf, signatureBuf)
-    ) {
-      throw new Error('INVALID_SIGNATURE');
+      return 'failed';
     }
   }
 }
