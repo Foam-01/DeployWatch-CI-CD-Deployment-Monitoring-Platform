@@ -9,7 +9,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { Request, Response } from 'express';
-import { ApiTags, ApiOperation, ApiExcludeEndpoint } from '@nestjs/swagger';
+import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { Public } from '../common/decorators/roles.decorator';
 import { WebhooksService } from './webhooks.service';
 

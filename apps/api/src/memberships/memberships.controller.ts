@@ -1,7 +1,7 @@
 import { Controller, Get, Post, Patch, Delete, Param, Body, UseGuards, ParseUUIDPipe } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { OrgGuard } from '../auth/guards/org.guard';
+import { OrgGuard } from '../common/guards/org.guard';
 import { MembershipsService } from './memberships.service';
 import { MemberRole } from '@prisma/client';
 

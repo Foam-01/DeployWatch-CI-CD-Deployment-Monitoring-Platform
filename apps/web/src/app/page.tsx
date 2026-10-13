@@ -57,7 +57,7 @@ interface IncidentItem {
   id: string;
   title: string;
   service: string;
-  severity: 'CRITICAL' | 'HIGH' | 'MEDIUM';
+  severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
   status: 'OPEN' | 'ACKNOWLEDGED' | 'RESOLVED';
   openedAt: string;
   eventsCount: number;

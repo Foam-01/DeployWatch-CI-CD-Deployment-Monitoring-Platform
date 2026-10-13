@@ -1,8 +1,8 @@
 import { Controller, Get, Post, Patch, Delete, Param, Body, UseGuards, ParseUUIDPipe } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { OrgGuard } from '../auth/guards/org.guard';
-import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { OrgGuard } from '../common/guards/org.guard';
+import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { NotificationsService } from './notifications.service';
 import { NotificationChannelType } from '@prisma/client';
 
