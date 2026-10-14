@@ -1,6 +1,7 @@
 'use client';
 
 import { ProjectSelect } from '@/components/project-select';
+import { DeploymentComparison } from '@/components/deployment-comparison';
 import {
   CursorPager,
   EmptyState,
@@ -44,6 +45,8 @@ export default function DeploymentsPage() {
           </select>
         </label>
       </div>
+
+      <DeploymentComparison />
 
       {loading ? (
         <LoadingState />

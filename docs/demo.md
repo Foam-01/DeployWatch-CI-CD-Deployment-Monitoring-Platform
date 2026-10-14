@@ -24,8 +24,9 @@ production data.
    projects, recent workflow runs, and the failed `CI / Jest & Playwright #143` run.
    Switch Delivery trends between 7 and 30 days, then open the run to see its commit
    and GitHub source link.
-2. **Deployments and environments:** open a project and inspect its Production and
-   Staging environments and deployment history.
+2. **Deployments and environments:** open Deployments, choose Storefront Web, and
+   compare its latest Production and Staging deployments. The demo records a
+   Production deployment; Staging shows that no deployment has been recorded yet.
 3. **Service health and incidents:** open Services and inspect the healthy Storefront
    Gateway and the down Card Authorization Webhook API. Open the incident to review
    the incident timeline. Seeded service URLs use `httpbin.org`; keep the worker's

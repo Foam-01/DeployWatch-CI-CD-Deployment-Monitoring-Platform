@@ -1,7 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { parseLimit } from '../common/utils/pagination';
+import { DeploymentComparisonQueryDto } from './dto/deployment-comparison-query.dto';
 
 interface DashboardAnalyticsRow {
   metric: 'workflowRuns' | 'deployments';
@@ -68,6 +69,64 @@ export class DeploymentsService {
     return { data: deployment };
   }
 
+  async compareProjectEnvironments(projectId: string, organizationId: string, query: DeploymentComparisonQueryDto) {
+    const project = await this.prisma.project.findFirst({
+      where: { id: projectId, organizationId },
+      select: { id: true, name: true },
+    });
+    if (!project) throw new NotFoundException('Project not found.');
+    if (query.leftEnvironmentId === query.rightEnvironmentId) {
+      throw new BadRequestException('Choose two different environments.');
+    }
+
+    const environments = await this.prisma.environment.findMany({
+      where: {
+        projectId,
+        id: { in: [query.leftEnvironmentId, query.rightEnvironmentId] },
+      },
+      select: { id: true, name: true, isProduction: true },
+    });
+    if (environments.length !== 2) {
+      throw new BadRequestException('Both environments must belong to this project.');
+    }
+
+    const byId = new Map(environments.map((environment) => [environment.id, environment]));
+    const leftEnvironment = byId.get(query.leftEnvironmentId);
+    const rightEnvironment = byId.get(query.rightEnvironmentId);
+    if (!leftEnvironment || !rightEnvironment) {
+      throw new BadRequestException('Both environments must belong to this project.');
+    }
+    const [leftDeployment, rightDeployment] = await Promise.all([
+      this.prisma.deployment.findFirst({
+        where: { projectId, environmentId: query.leftEnvironmentId },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        include: { workflowRun: { select: { workflowName: true, runNumber: true, htmlUrl: true } } },
+      }),
+      this.prisma.deployment.findFirst({
+        where: { projectId, environmentId: query.rightEnvironmentId },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        include: { workflowRun: { select: { workflowName: true, runNumber: true, htmlUrl: true } } },
+      }),
+    ]);
+    const left = {
+      environment: leftEnvironment,
+      deployment: leftDeployment,
+    };
+    const right = {
+      environment: rightEnvironment,
+      deployment: rightDeployment,
+    };
+
+    return {
+      data: {
+        project,
+        left,
+        right,
+        sameCommit: leftDeployment && rightDeployment ? leftDeployment.commitSha === rightDeployment.commitSha : null,
+      },
+    };
+  }
+
   async getDashboardOverview(organizationId: string) {
     const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
 
@@ -116,8 +175,11 @@ export class DeploymentsService {
         }),
       ]);
 
-    const count = <K extends string>(rows: Array<Record<K, unknown> & { _count: { _all: number } }>, key: K, value: string) =>
-      rows.find((r) => r[key] === value)?._count._all ?? 0;
+    const count = <K extends string>(
+      rows: Array<Record<K, unknown> & { _count: { _all: number } }>,
+      key: K,
+      value: string,
+    ) => rows.find((r) => r[key] === value)?._count._all ?? 0;
 
     const successfulRuns = count(runCounts, 'conclusion', 'SUCCESS');
     const failedRuns = count(runCounts, 'conclusion', 'FAILURE');
@@ -181,10 +243,7 @@ export class DeploymentsService {
       GROUP BY day
     `);
 
-    const byMetric: Record<
-      DashboardAnalyticsRow['metric'],
-      Map<string, { successes: number; failures: number }>
-    > = {
+    const byMetric: Record<DashboardAnalyticsRow['metric'], Map<string, { successes: number; failures: number }>> = {
       workflowRuns: new Map(),
       deployments: new Map(),
     };

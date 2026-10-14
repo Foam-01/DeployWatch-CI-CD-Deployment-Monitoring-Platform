@@ -57,6 +57,14 @@ deployments for the selected 7- or 30-day UTC window. Aggregates are scoped by t
 authenticated organization and queried from indexed creation-time ranges; missing
 dates are filled with zeroes for a continuous chart.
 
+## Deployment comparison
+
+The deployment history can compare the latest deployment records for any two
+environments in the same project. The API verifies the project belongs to the
+authenticated organization and that both environments belong to that project. It
+reports whether both latest deployments reference the same commit; it does not
+infer Git ancestry or claim that one commit is ahead of another.
+
 ## Entity relationship diagram
 
 The diagram shows the persisted domain relationships. `?` denotes an optional

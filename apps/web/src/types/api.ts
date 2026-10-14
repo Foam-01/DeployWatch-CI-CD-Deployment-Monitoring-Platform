@@ -1,7 +1,6 @@
 export type MemberRole = 'OWNER' | 'ADMIN' | 'MEMBER' | 'VIEWER';
 export type WorkflowStatus = 'QUEUED' | 'IN_PROGRESS' | 'COMPLETED';
-export type WorkflowConclusion =
-  | 'SUCCESS' | 'FAILURE' | 'CANCELLED' | 'SKIPPED' | 'TIMED_OUT' | 'ACTION_REQUIRED';
+export type WorkflowConclusion = 'SUCCESS' | 'FAILURE' | 'CANCELLED' | 'SKIPPED' | 'TIMED_OUT' | 'ACTION_REQUIRED';
 export type DeploymentStatus = 'QUEUED' | 'IN_PROGRESS' | 'SUCCESS' | 'FAILURE' | 'CANCELLED' | 'SKIPPED';
 export type ServiceStatus = 'HEALTHY' | 'DEGRADED' | 'DOWN' | 'UNKNOWN';
 export type HealthCheckStatus = 'PASS' | 'FAIL' | 'TIMEOUT';
@@ -99,6 +98,19 @@ export interface Deployment {
   environment?: { name: string; isProduction?: boolean };
   project?: { id?: string; name: string };
   workflowRun?: { workflowName: string; runNumber: number; htmlUrl: string } | null;
+}
+
+export interface DeploymentEnvironmentComparison {
+  project: { id: string; name: string };
+  left: {
+    environment: Environment;
+    deployment: Deployment | null;
+  };
+  right: {
+    environment: Environment;
+    deployment: Deployment | null;
+  };
+  sameCommit: boolean | null;
 }
 
 export interface Service {

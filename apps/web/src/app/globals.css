@@ -392,6 +392,33 @@ code {
   min-width: 0;
 }
 
+.deployment-comparison {
+  display: grid;
+  gap: 16px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+.deployment-comparison-item {
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+}
+.deployment-comparison-item h3 {
+  margin: 0;
+}
+.deployment-comparison-title {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.deployment-comparison-item .details {
+  margin-top: 16px;
+}
+
 /* System status banner: answers "is everything OK?" before anything else. */
 .system-status {
   display: flex;

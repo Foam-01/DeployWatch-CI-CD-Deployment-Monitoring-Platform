@@ -32,6 +32,34 @@ test.describe('Monitoring flows (admin)', () => {
     await expect(page.getByRole('link', { name: /Open on GitHub/ })).toHaveAttribute('href', /github\.com/);
   });
 
+  test('deployment history compares latest commits across project environments', async ({ page }) => {
+    await page.goto('/deployments');
+    const comparison = page.getByRole('region', { name: 'Compare environments' });
+    await comparison
+      .locator('label')
+      .filter({ hasText: 'Project' })
+      .locator('select')
+      .selectOption({ label: 'Storefront Web' });
+    await comparison
+      .locator('label')
+      .filter({ hasText: 'Environment A' })
+      .locator('select')
+      .selectOption({ label: 'Production' });
+    await comparison
+      .locator('label')
+      .filter({ hasText: 'Environment B' })
+      .locator('select')
+      .selectOption({ label: 'Staging' });
+
+    await expect(
+      comparison.getByText('A commit comparison is unavailable until both environments have a deployment.'),
+    ).toBeVisible();
+    await expect(comparison.getByRole('article', { name: 'Environment A: Production' })).toContainText('d9e4a8b');
+    await expect(comparison.getByRole('article', { name: 'Environment B: Staging' })).toContainText(
+      'No deployment has been recorded',
+    );
+  });
+
   test('workflow run filters live in the URL and narrow the results', async ({ page }) => {
     await page.goto('/workflow-runs');
     await settled(page);

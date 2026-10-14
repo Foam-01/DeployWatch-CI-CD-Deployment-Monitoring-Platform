@@ -14,6 +14,7 @@ Instead of mock charts, DeployWatch implements real-world infrastructure pattern
 - **Project Alert Rules**: Owners/admins can override the service-down failure threshold for every service in a project; per-service thresholds remain the fallback.
 - **Delivery Analytics**: Organization-scoped daily workflow-run and deployment trends for the last 7 or 30 days.
 - **CSV Exports**: Download organization-scoped workflow-run and incident reports; current filters are applied, spreadsheet formulas are neutralized, and exports are capped at 10,000 rows.
+- **Deployment Comparison**: Compare the latest recorded commits and deployment status between two environments in a project.
 - **Incident Lifecycle Management**: Opens incidents after sustained downtime, notifies configured channels, and records an incident timeline. Recovery updates service state; operators resolve incidents explicitly.
 - **Notification Center**: Per-user in-app notifications and configurable Slack/webhook channels with delivery history and retries.
 - **Modern Responsive UI**: Next.js 14 App Router with the Light Engineering design system, responsive layouts, loading, empty, and error states.
