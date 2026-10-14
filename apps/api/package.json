@@ -27,7 +27,8 @@
     "benchmark:dashboard": "ts-node -r tsconfig-paths/register scripts/dashboard-performance.ts",
     "start:worker": "node dist/worker",
     "dev:worker": "nest start --watch --entryFile worker",
-    "secrets:encrypt": "ts-node scripts/encrypt-secrets.ts"
+    "secrets:encrypt": "ts-node scripts/encrypt-secrets.ts",
+    "db:seed:demo": "ts-node prisma/seed-demo.ts"
   },
   "dependencies": {
     "@nestjs/common": "^10.4.15",
