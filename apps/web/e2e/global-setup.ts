@@ -17,7 +17,9 @@ export default async function globalSetup() {
   const apiDir = path.resolve(__dirname, '../../api');
   const env = { ...process.env, DATABASE_URL: TEST_DATABASE_URL, ENCRYPTION_KEY: '000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f' };
   execSync('npx prisma migrate deploy', { cwd: apiDir, env, stdio: 'inherit' });
-  execSync('npx ts-node prisma/seed.ts', { cwd: apiDir, env, stdio: 'inherit' });
+  // README screenshots use the large demo dataset; regular E2E runs use the small seed.
+  const seedScript = process.env.DOCS_SCREENSHOTS ? 'prisma/seed-demo.ts' : 'prisma/seed.ts';
+  execSync(`npx ts-node ${seedScript}`, { cwd: apiDir, env, stdio: 'inherit' });
 
   const prisma = new PrismaClient({ datasources: { db: { url: TEST_DATABASE_URL } } });
   try {
