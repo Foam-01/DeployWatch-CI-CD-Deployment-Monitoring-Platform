@@ -7,6 +7,6 @@ import { WebhookInboxService } from './webhook-inbox.service';
 @Module({
   controllers: [WebhooksController],
   providers: [WebhooksService, WebhookEventProcessorService, WebhookInboxService],
-  exports: [WebhooksService, WebhookInboxService],
+  exports: [WebhooksService, WebhookInboxService, WebhookEventProcessorService],
 })
 export class WebhooksModule {}

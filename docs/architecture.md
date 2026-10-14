@@ -29,8 +29,9 @@ processes to avoid running the same schedulers in both services.
 
 ## Webhook processing
 
-1. The GitHub webhook controller verifies `X-Hub-Signature-256` against the raw
-   request body and the repository's secret.
+1. Provider webhook controllers verify GitHub HMAC, GitLab secret-token, or
+   Jenkins HMAC authentication. Jenkins signatures and GitHub signatures cover
+   the raw request body.
 2. The inbox stores the delivery ID under a unique `(provider, delivery_id)` key.
    Repeated deliveries are acknowledged without applying the event twice.
 3. The request path attempts immediate processing. Failed processing is retained
@@ -39,6 +40,10 @@ processes to avoid running the same schedulers in both services.
    and records success or schedules a backoff retry.
 5. The retention job redacts payload JSON only for old, terminal events. It retains
    inbox rows and their unique delivery IDs so old deliveries remain deduplicated.
+6. GitLab pipeline/deployment hooks and Jenkins build events are normalized to the
+   shared workflow/deployment model. GitLab and Jenkins API calls use encrypted
+   credentials and the socket-level SSRF guard; only public HTTPS endpoints are
+   allowed.
 
 ## Health checks and incidents
 

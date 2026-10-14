@@ -37,9 +37,10 @@ export interface Environment {
 export interface Repository {
   id: string;
   fullName: string;
-  provider: string;
+  provider: 'GITHUB' | 'GITLAB' | 'JENKINS';
   defaultBranch?: string;
   externalRepoId?: string;
+  integrationUrl?: string | null;
   webhookSecret?: string;
 }
 

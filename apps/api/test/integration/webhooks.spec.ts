@@ -21,6 +21,147 @@ describe('GitHub webhook ingestion (integration)', () => {
     ({ app, prisma } = await createTestApp());
   });
 
+  describe('GitLab and Jenkins webhook ingestion (integration)', () => {
+    let app: INestApplication;
+    let prisma: PrismaService;
+    let org: TestOrg;
+
+    beforeAll(async () => {
+      ({ app, prisma } = await createTestApp());
+    });
+
+    beforeEach(async () => {
+      await resetDatabase(prisma);
+      resetThrottling(app);
+      org = await createOrgFixture(prisma);
+    });
+
+    afterAll(async () => {
+      await app.close();
+    });
+
+    it('authenticates and ingests GitLab pipeline hooks idempotently', async () => {
+      await prisma.repository.update({
+        where: { id: org.repositoryId },
+        data: { provider: 'GITLAB', integrationUrl: 'https://gitlab.com' },
+      });
+      const payload = {
+        object_kind: 'pipeline',
+        object_attributes: {
+          id: 9_123_456_789,
+          iid: 42,
+          ref: 'main',
+          sha: 'c'.repeat(40),
+          status: 'success',
+          created_at: '2026-10-14T08:00:00Z',
+          finished_at: '2026-10-14T08:01:00Z',
+          web_url: 'https://gitlab.com/acme/repo/-/pipelines/42',
+        },
+        project: { name: 'GitLab Repo', web_url: 'https://gitlab.com/acme/repo' },
+      };
+      const body = JSON.stringify(payload);
+      const send = () =>
+        request(app.getHttpServer())
+          .post(`${API}/webhooks/gitlab/${org.repositoryId}`)
+          .set('Content-Type', 'application/json')
+          .set('X-Gitlab-Event', 'Pipeline Hook')
+          .set('X-Gitlab-Event-UUID', 'gitlab-pipeline-42')
+          .set('X-Gitlab-Token', org.webhookSecret)
+          .send(body);
+
+      await send().expect(200);
+      expect((await send()).body.duplicate).toBe(true);
+      expect(await prisma.webhookEvent.count()).toBe(1);
+      const run = await prisma.workflowRun.findFirstOrThrow();
+      expect(run).toMatchObject({
+        externalRunId: BigInt('9123456789'),
+        runNumber: 42,
+        status: 'COMPLETED',
+        conclusion: 'SUCCESS',
+        branch: 'main',
+      });
+
+      await request(app.getHttpServer())
+        .post(`${API}/webhooks/gitlab/${org.repositoryId}`)
+        .set('Content-Type', 'application/json')
+        .set('X-Gitlab-Event', 'Pipeline Hook')
+        .set('X-Gitlab-Token', 'wrong-token')
+        .send(body)
+        .expect(401);
+    });
+
+    it('ingests GitLab deployment hooks into the configured environment', async () => {
+      await prisma.repository.update({
+        where: { id: org.repositoryId },
+        data: { provider: 'GITLAB', integrationUrl: 'https://gitlab.com' },
+      });
+      const body = JSON.stringify({
+        object_kind: 'deployment',
+        status: 'success',
+        deployable: {
+          id: 5555,
+          sha: 'd'.repeat(40),
+          created_at: '2026-10-14T08:00:00Z',
+          finished_at: '2026-10-14T08:01:00Z',
+        },
+        environment: { name: 'Production', external_url: 'https://prod.example.com' },
+        user: { username: 'release-bot' },
+      });
+      await request(app.getHttpServer())
+        .post(`${API}/webhooks/gitlab/${org.repositoryId}`)
+        .set('Content-Type', 'application/json')
+        .set('X-Gitlab-Event', 'Deployment Hook')
+        .set('X-Gitlab-Event-UUID', 'gitlab-deployment-55')
+        .set('X-Gitlab-Token', org.webhookSecret)
+        .send(body)
+        .expect(200);
+
+      expect(await prisma.deployment.findFirstOrThrow()).toMatchObject({
+        externalDeploymentId: '5555',
+        status: 'SUCCESS',
+        environmentId: org.environmentId,
+        commitSha: 'd'.repeat(40),
+      });
+    });
+
+    it('verifies Jenkins HMAC signatures over the raw body before ingesting a build', async () => {
+      await prisma.repository.update({
+        where: { id: org.repositoryId },
+        data: { provider: 'JENKINS', integrationUrl: 'https://jenkins.example.com' },
+      });
+      const payload = {
+        build_number: 17,
+        build_status: 'SUCCESS',
+        job_name: 'folder/service',
+        build_url: 'https://jenkins.example.com/job/folder/job/service/17/',
+        git_branch: 'main',
+        git_commit: 'e'.repeat(40),
+        timestamp: '2026-10-14T08:00:00Z',
+        completed_at: '2026-10-14T08:02:00Z',
+      };
+      const body = JSON.stringify(payload);
+      const send = (signature: string) =>
+        request(app.getHttpServer())
+          .post(`${API}/webhooks/jenkins/${org.repositoryId}`)
+          .set('Content-Type', 'application/json')
+          .set('X-DeployWatch-Event', 'build')
+          .set('X-DeployWatch-Delivery', 'jenkins-build-17')
+          .set('X-DeployWatch-Signature', signature)
+          .send(body);
+
+      await send(sign(body, org.webhookSecret)).expect(200);
+      const run = await prisma.workflowRun.findFirstOrThrow();
+      expect(run).toMatchObject({
+        externalRunId: BigInt(17),
+        runNumber: 17,
+        status: 'COMPLETED',
+        conclusion: 'SUCCESS',
+        branch: 'main',
+      });
+      await send(sign(body, 'wrong-secret')).expect(401);
+    });
+  });
+
   beforeEach(async () => {
     await resetDatabase(prisma);
     resetThrottling(app);
@@ -32,7 +173,10 @@ describe('GitHub webhook ingestion (integration)', () => {
   });
 
   /** Sends a payload exactly as GitHub would: raw JSON body signed with the repo secret. */
-  function deliver(payload: unknown, opts: { deliveryId?: string; event?: string; secret?: string; signature?: string } = {}) {
+  function deliver(
+    payload: unknown,
+    opts: { deliveryId?: string; event?: string; secret?: string; signature?: string } = {},
+  ) {
     const body = JSON.stringify(payload);
     return request(app.getHttpServer())
       .post(`${API}/webhooks/github/${org.repositoryId}`)
@@ -103,10 +247,7 @@ describe('GitHub webhook ingestion (integration)', () => {
   });
 
   it('TC-W06 returns 400 when GitHub delivery headers are missing', async () => {
-    await request(app.getHttpServer())
-      .post(`${API}/webhooks/github/${org.repositoryId}`)
-      .send({})
-      .expect(400);
+    await request(app.getHttpServer()).post(`${API}/webhooks/github/${org.repositoryId}`).send({}).expect(400);
   });
 
   it('TC-W07 processes a redelivered Delivery ID only once (idempotency)', async () => {

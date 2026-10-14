@@ -56,6 +56,16 @@ production data.
 4. Trigger a workflow run in GitHub and inspect its delivery response, then check
    DeployWatch Workflow Runs and Deployments.
 
+## Connect GitLab or Jenkins (optional)
+
+Open a project and use its CI/CD integrations card to select GitLab or Jenkins.
+Enter a provider API token, discover the accessible projects/jobs, and link the
+ones to monitor. Tokens are encrypted and never returned by the API. Self-managed
+providers must be reachable at an HTTPS hostname resolving only to public IPs;
+private-network endpoints are blocked. Configure the displayed webhook URL and
+one-time secret using [the provider setup guide](./provider-integrations.md), then
+use **Sync recent runs** for an initial import.
+
 The demo seed includes a disabled placeholder Slack channel; it will not send
 notifications. Never paste a real webhook URL or secret into screenshots, logs, or
 source control.

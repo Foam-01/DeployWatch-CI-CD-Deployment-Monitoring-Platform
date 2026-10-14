@@ -17,24 +17,27 @@ export default function IntegrationsPage() {
     <>
       <PageHeader
         title="Integrations"
-        description="GitHub repositories that send workflow and deployment events to DeployWatch."
+        description="Connect GitHub, GitLab, and Jenkins repositories and send CI/CD events to DeployWatch."
       />
 
       <section className="card setup-steps" aria-labelledby="setup-h">
         <div className="card-head">
-          <h2 id="setup-h">Connecting a repository</h2>
+          <h2 id="setup-h">Provider setup</h2>
         </div>
         <ol className="small">
-          <li>Open a project and link its GitHub repository (owners and admins only).</li>
+          <li>Open a project and choose GitHub, GitLab, or Jenkins (owners and admins only).</li>
           <li>
-            Copy the webhook secret shown once after linking, then in GitHub go to{' '}
-            <strong>Settings → Webhooks → Add webhook</strong>.
+            GitLab and Jenkins use an access token to discover projects/jobs and sync recent runs. Credentials are
+            encrypted at rest.
           </li>
           <li>
-            Use the payload URL below, content type <code>application/json</code>, and select the{' '}
-            <strong>Workflow runs</strong> and <strong>Deployment statuses</strong> events.
+            Configure the displayed webhook URL and secret in your provider. GitLab supports pipeline and deployment
+            events; Jenkins uses Generic Webhook Trigger with an HMAC signature.
           </li>
-          <li>Add an environment in project settings for each GitHub Environment you deploy to.</li>
+          <li>
+            For self-hosted GitLab/Jenkins, use an HTTPS URL whose DNS resolves only to public IP addresses.
+            Internal/private hosts are intentionally blocked.
+          </li>
         </ol>
       </section>
 
@@ -63,6 +66,7 @@ export default function IntegrationsPage() {
               <tr>
                 <th scope="col">Repository</th>
                 <th scope="col">Project</th>
+                <th scope="col">Provider</th>
                 <th scope="col">Webhook payload URL</th>
               </tr>
             </thead>
@@ -75,9 +79,10 @@ export default function IntegrationsPage() {
                       {project.name}
                     </Link>
                   </td>
+                  <td>{repo.provider}</td>
                   <td>
                     <code className="secret">
-                      {API_BASE}/webhooks/github/{repo.id}
+                      {API_BASE}/webhooks/{repo.provider.toLowerCase()}/{repo.id}
                     </code>
                   </td>
                 </tr>

@@ -1,15 +1,27 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { createHash, timingSafeEqual } from 'crypto';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { SecretBox } from '../common/crypto/secret-box';
 import { WebhookInboxService } from './webhook-inbox.service';
 import { verifyGitHubSignature } from './github-signature';
+import { RepositoryProvider } from '@prisma/client';
 
 export interface GitHubWebhookOptions {
   repositoryId: string;
   deliveryId: string;
   eventType: string;
   signature: string | undefined;
+  rawBody: Buffer | undefined;
+  payload: unknown;
+}
+
+export interface ProviderWebhookOptions {
+  provider: RepositoryProvider;
+  repositoryId: string;
+  deliveryId: string;
+  eventType: string;
+  secret: string | undefined;
   rawBody: Buffer | undefined;
   payload: unknown;
 }
@@ -47,7 +59,11 @@ export class WebhooksService {
 
     // 2. Unknown repository or one without a secret cannot be verified: treat exactly
     //    like a bad signature so callers cannot probe which IDs exist.
-    if (!repository?.webhookSecret || !verifyGitHubSignature(rawBody, signature, this.secrets.decrypt(repository.webhookSecret))) {
+    if (
+      repository?.provider !== RepositoryProvider.GITHUB ||
+      !repository.webhookSecret ||
+      !verifyGitHubSignature(rawBody, signature, this.secrets.decrypt(repository.webhookSecret))
+    ) {
       throw new InvalidWebhookSignatureError();
     }
 
@@ -85,5 +101,72 @@ export class WebhooksService {
     //    retries it from the inbox with backoff.
     const result = await this.inbox.processNow(eventId);
     return result === 'failed' ? 'failed' : 'processed';
+  }
+
+  async handleProviderEvent(options: ProviderWebhookOptions): Promise<WebhookResult> {
+    const { provider, repositoryId, deliveryId, eventType, secret, rawBody, payload } = options;
+    const repository = await this.prisma.repository.findUnique({
+      where: { id: repositoryId },
+      include: { project: { select: { organizationId: true } } },
+    });
+    if (!repository || repository.provider !== provider || !repository.webhookSecret || !rawBody) {
+      throw new InvalidWebhookSignatureError();
+    }
+    const storedSecret = repository?.webhookSecret ? this.secrets.decrypt(repository.webhookSecret) : '';
+    const token = Buffer.from(storedSecret);
+    const presented = Buffer.from(secret ?? '');
+    const valid =
+      provider === RepositoryProvider.GITLAB
+        ? token.length === presented.length && timingSafeEqual(token, presented)
+        : verifyGitHubSignature(rawBody, secret, storedSecret);
+    if (!valid) {
+      throw new InvalidWebhookSignatureError();
+    }
+
+    const eventId = await this.storeEvent({
+      organizationId: repository.project.organizationId,
+      repositoryId: repository.id,
+      provider,
+      deliveryId,
+      eventType,
+      payload,
+      signature: provider === RepositoryProvider.JENKINS ? secret : null,
+    });
+    if (eventId === null) return 'duplicate';
+    const result = await this.inbox.processNow(eventId);
+    return result === 'failed' ? 'failed' : 'processed';
+  }
+
+  static deliveryId(rawBody: Buffer | undefined, supplied?: string): string {
+    return (
+      supplied ||
+      createHash('sha256')
+        .update(rawBody ?? Buffer.alloc(0))
+        .digest('hex')
+    );
+  }
+
+  private async storeEvent(input: {
+    organizationId: string;
+    repositoryId: string;
+    provider: RepositoryProvider;
+    deliveryId: string;
+    eventType: string;
+    payload: unknown;
+    signature: string | null | undefined;
+  }): Promise<string | null> {
+    try {
+      const event = await this.prisma.webhookEvent.create({
+        data: {
+          ...input,
+          payload: input.payload as Prisma.InputJsonValue,
+          processingStatus: 'PENDING',
+        },
+      });
+      return event.id;
+    } catch (err) {
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') return null;
+      throw err;
+    }
   }
 }

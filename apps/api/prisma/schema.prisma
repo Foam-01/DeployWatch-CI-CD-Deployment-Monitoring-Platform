@@ -30,6 +30,8 @@ enum ProjectStatus {
 
 enum RepositoryProvider {
   GITHUB
+  GITLAB
+  JENKINS
 }
 
 enum WorkflowStatus {
@@ -225,6 +227,7 @@ model Repository {
   webhookId        String?            @map("webhook_id")
   webhookSecret    String?            @map("webhook_secret")
   integrationToken String?            @map("integration_token")
+  integrationUrl   String?             @map("integration_url")
   createdAt        DateTime           @default(now()) @map("created_at") @db.Timestamptz
   updatedAt        DateTime           @updatedAt @map("updated_at") @db.Timestamptz
 

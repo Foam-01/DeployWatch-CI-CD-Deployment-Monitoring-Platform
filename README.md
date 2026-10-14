@@ -9,7 +9,7 @@
 **DeployWatch** is a centralized CI/CD observability and health monitoring platform designed to aggregate build pipelines, production deployments, and microservice uptime across multiple repositories into a unified command center.
 
 Instead of mock charts, DeployWatch implements real-world infrastructure patterns:
-- **GitHub Webhook Ingestion**: Verifies raw request bodies with HMAC-SHA256, deduplicates deliveries, and retries failed event processing with backoff.
+- **GitHub, GitLab & Jenkins Integrations**: Ingests signed webhooks, discovers repositories/jobs through provider APIs, encrypts access credentials, and syncs recent CI runs.
 - **Automated Health Checking & Flapping Prevention**: Configurable synthetic probes with failure/recovery thresholds (e.g., 3 consecutive failures before alerting) to eliminate transient alert flapping.
 - **Project Alert Rules**: Owners/admins can override the service-down failure threshold for every service in a project; per-service thresholds remain the fallback.
 - **Delivery Analytics**: Organization-scoped daily workflow-run and deployment trends for the last 7 or 30 days.
@@ -19,7 +19,7 @@ Instead of mock charts, DeployWatch implements real-world infrastructure pattern
 - **Notification Center**: Per-user in-app notifications and configurable Slack/webhook channels with delivery history and retries.
 - **Modern Responsive UI**: Next.js 14 App Router with the Light Engineering design system, responsive layouts, loading, empty, and error states.
 
-See [architecture and data model](./docs/architecture.md), [architecture decision record](./docs/adr/0001-modular-api-worker.md), and the [demo walkthrough](./docs/demo.md).
+See [provider integration setup](./docs/provider-integrations.md), [architecture and data model](./docs/architecture.md), [architecture decision record](./docs/adr/0001-modular-api-worker.md), and the [demo walkthrough](./docs/demo.md).
 For the opt-in dashboard API latency benchmark and its fixed test workload, see
 [docs/performance.md](./docs/performance.md).
 

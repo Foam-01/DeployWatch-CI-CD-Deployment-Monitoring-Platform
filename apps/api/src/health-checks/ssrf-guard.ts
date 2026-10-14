@@ -4,7 +4,7 @@ import * as https from 'https';
 import { BlockList, isIP } from 'net';
 
 /**
- * SSRF protection for user-supplied health check URLs.
+ * SSRF protection for user-supplied health-check and provider URLs.
  *
  * String checks on the URL are not enough: a public hostname can resolve to an
  * internal address, or re-resolve to one between validation and the request
@@ -43,6 +43,7 @@ for (const [net, prefix] of [
   ['::', 128], // unspecified
   ['::1', 128], // loopback
   ['64:ff9b::', 96], // NAT64 can reach internal IPv4
+  ['2002::', 16], // 6to4 embeds an IPv4 destination
   ['fc00::', 7], // unique local
   ['fe80::', 10], // link-local
   ['ff00::', 8], // multicast
@@ -56,11 +57,42 @@ export function isBlockedAddress(ip: string): boolean {
   const family = isIP(ip);
   if (family === 4) return blocked.check(ip, 'ipv4');
   if (family === 6) {
-    const mapped = ip.toLowerCase().match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
-    if (mapped) return blocked.check(mapped[1], 'ipv4');
+    const mapped = mappedIPv4(ip);
+    if (mapped) return blocked.check(mapped, 'ipv4');
     return blocked.check(ip, 'ipv6');
   }
   return true; // not an IP at all — refuse
+}
+
+function mappedIPv4(ip: string): string | null {
+  const normalized = ip.toLowerCase();
+  const finalSeparator = normalized.lastIndexOf(':');
+  const possibleDotted = normalized.slice(finalSeparator + 1);
+  let words: number[];
+  if (possibleDotted.includes('.')) {
+    const octets = possibleDotted.split('.').map(Number);
+    if (octets.length !== 4 || octets.some((octet) => !Number.isInteger(octet) || octet < 0 || octet > 255))
+      return null;
+    const high = ((octets[0] << 8) | octets[1]).toString(16);
+    const low = ((octets[2] << 8) | octets[3]).toString(16);
+    words = expandIPv6Words(`${normalized.slice(0, finalSeparator)}:${high}:${low}`);
+  } else {
+    words = expandIPv6Words(normalized);
+  }
+  if (words.length !== 8 || words.slice(0, 5).some((word) => word !== 0) || words[5] !== 0xffff) return null;
+  const value = (words[6] << 16) | words[7];
+  return [value >>> 24, (value >>> 16) & 255, (value >>> 8) & 255, value & 255].join('.');
+}
+
+function expandIPv6Words(address: string): number[] {
+  const halves = address.split('::');
+  if (halves.length > 2) return [];
+  const left = halves[0] ? halves[0].split(':') : [];
+  const right = halves.length === 2 && halves[1] ? halves[1].split(':') : [];
+  const zeros = halves.length === 2 ? 8 - left.length - right.length : 0;
+  const parts = [...left, ...Array.from({ length: zeros }, () => '0'), ...right];
+  if (parts.length !== 8 || parts.some((part) => !/^[0-9a-f]{1,4}$/.test(part))) return [];
+  return parts.map((part) => Number.parseInt(part, 16));
 }
 
 /** Static checks that need no network: scheme, credentials and literal IPs. */
@@ -78,7 +110,10 @@ export function assertAllowedUrl(raw: string, isBlocked: (ip: string) => boolean
     throw new BlockedDestinationError('credentials in URL are not allowed');
   }
   const host = url.hostname.replace(/^\[|\]$/g, '');
-  if (isBlocked === isBlockedAddress && (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.internal'))) {
+  if (
+    isBlocked === isBlockedAddress &&
+    (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.internal'))
+  ) {
     throw new BlockedDestinationError('internal hostname');
   }
   if (isIP(host) && isBlocked(host)) {
@@ -88,13 +123,18 @@ export function assertAllowedUrl(raw: string, isBlocked: (ip: string) => boolean
 }
 
 type LookupFn = typeof dns.lookup;
+type SafeLookupCallback = (
+  err: NodeJS.ErrnoException | null,
+  address?: string | dns.LookupAddress[],
+  family?: number,
+) => void;
 
 /** DNS lookup used by the socket itself; fails the connection if any resolved address is blocked. */
 export function makeSafeLookup(
   resolve: LookupFn = dns.lookup,
   isBlocked: (ip: string) => boolean = isBlockedAddress,
 ): LookupFn {
-  return ((hostname: string, options: dns.LookupOptions, callback: (...args: any[]) => void) => {
+  return ((hostname: string, options: dns.LookupOptions, callback: SafeLookupCallback) => {
     resolve(hostname, { ...options, all: true }, (err, addresses) => {
       if (err) return callback(err);
       const list = addresses as unknown as dns.LookupAddress[];
@@ -125,6 +165,7 @@ export interface SafeGetResult {
 export interface SafeGetOptions {
   timeoutMs: number;
   lookup?: LookupFn;
+  headers?: Record<string, string>;
   /** Address policy; defaults to blocking every non-public range. */
   isBlocked?: (ip: string) => boolean;
 }
@@ -136,6 +177,56 @@ export interface SafeGetOptions {
  */
 export function safeHttpGet(raw: string, opts: SafeGetOptions): Promise<SafeGetResult> {
   return safeHttpRequest(raw, { ...opts, method: 'GET' });
+}
+
+export interface SafeJsonGetResult extends SafeGetResult {
+  body: string;
+}
+
+/** Bounded JSON-capable GET for API integrations; redirects remain disabled. */
+export function safeHttpGetJson(raw: string, opts: SafeGetOptions & { maxBytes?: number }): Promise<SafeJsonGetResult> {
+  const isBlocked = opts.isBlocked ?? isBlockedAddress;
+  const url = assertAllowedUrl(raw, isBlocked);
+  const client = url.protocol === 'https:' ? https : http;
+  const maxBytes = opts.maxBytes ?? 1_000_000;
+  const headers: Record<string, string> = {
+    'User-Agent': 'DeployWatch/1.0',
+    Accept: 'application/json',
+    ...opts.headers,
+  };
+
+  return new Promise((resolve, reject) => {
+    const req = client.request(
+      url,
+      { method: 'GET', lookup: makeSafeLookup(opts.lookup, isBlocked), headers },
+      (res) => {
+        let size = 0;
+        const chunks: Buffer[] = [];
+        res.on('data', (chunk: Buffer) => {
+          size += chunk.length;
+          if (size > maxBytes) {
+            req.destroy(new Error(`Response exceeded ${maxBytes} bytes.`));
+            return;
+          }
+          chunks.push(chunk);
+        });
+        res.on('end', () => {
+          clearTimeout(deadline);
+          resolve({ status: res.statusCode ?? 0, body: Buffer.concat(chunks).toString('utf8') });
+        });
+        res.on('error', (err) => {
+          clearTimeout(deadline);
+          reject(err);
+        });
+      },
+    );
+    const deadline = setTimeout(() => req.destroy(new TimeoutError(opts.timeoutMs)), opts.timeoutMs);
+    req.on('error', (err) => {
+      clearTimeout(deadline);
+      reject(err);
+    });
+    req.end();
+  });
 }
 
 /** JSON POST with the same protections as safeHttpGet (used for outbound notifications). */

@@ -7,12 +7,16 @@ import {
   assertResolvesToPublicAddress,
   isBlockedAddress,
   safeHttpGet,
+  safeHttpGetJson,
 } from '../../src/health-checks/ssrf-guard';
 
 /** Fake resolver: answers every hostname with the given addresses. */
 function resolverReturning(...addresses: string[]) {
   return ((_host: string, _opts: unknown, cb: (err: Error | null, addrs?: unknown) => void) =>
-    cb(null, addresses.map((address) => ({ address, family: address.includes(':') ? 6 : 4 })))) as never;
+    cb(
+      null,
+      addresses.map((address) => ({ address, family: address.includes(':') ? 6 : 4 })),
+    )) as never;
 }
 
 describe('SSRF guard', () => {
@@ -33,6 +37,7 @@ describe('SSRF guard', () => {
       'fe80::1',
       'fd00::1',
       '::ffff:127.0.0.1', // IPv4-mapped loopback
+      '::ffff:7f00:1', // IPv4-mapped loopback in hexadecimal form
       '::ffff:169.254.169.254',
       '64:ff9b::a00:1', // NAT64 → 10.0.0.1
       'not-an-ip',
@@ -94,6 +99,8 @@ describe('SSRF guard', () => {
     beforeAll(async () => {
       server = http.createServer((req, res) => {
         if (req.url === '/ok') return res.writeHead(200).end('ok');
+        if (req.url === '/json')
+          return res.writeHead(200, { 'Content-Type': 'application/json' }).end('{"items":[1,2]}');
         if (req.url === '/error') return res.writeHead(500).end();
         if (req.url === '/redirect') return res.writeHead(302, { Location: 'http://169.254.169.254/' }).end();
         if (req.url === '/huge') {
@@ -135,6 +142,13 @@ describe('SSRF guard', () => {
         lookup: resolverReturning('127.0.0.1'),
         isBlocked: allowLoopback,
       });
+    const getJson = (path: string, maxBytes = 1024) =>
+      safeHttpGetJson(`http://local.test:${port}${path}`, {
+        timeoutMs: 1000,
+        lookup: resolverReturning('127.0.0.1'),
+        isBlocked: allowLoopback,
+        maxBytes,
+      });
 
     it('returns the HTTP status of a reachable endpoint', async () => {
       await expect(get('/ok')).resolves.toEqual({ status: 200 });
@@ -153,6 +167,11 @@ describe('SSRF guard', () => {
 
     it('times out a server that never responds', async () => {
       await expect(get('/slow', 200)).rejects.toThrow(TimeoutError);
+    });
+
+    it('reads bounded JSON responses for provider API calls', async () => {
+      await expect(getJson('/json')).resolves.toMatchObject({ status: 200, body: '{"items":[1,2]}' });
+      await expect(getJson('/huge', 128)).rejects.toThrow(/exceeded 128 bytes/);
     });
   });
 });

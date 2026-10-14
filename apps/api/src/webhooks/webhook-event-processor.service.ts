@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { DeploymentStatus, Repository, WorkflowStatus } from '@prisma/client';
+import { DeploymentStatus, Repository, RepositoryProvider, WorkflowStatus } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { NotifierService } from '../notifications/notifier.service';
 import { mapWorkflowConclusion, mapWorkflowStatus, shouldApplyStatus } from './workflow-run-state';
@@ -19,6 +19,18 @@ export class WebhookEventProcessorService {
   ) {}
 
   async process(eventType: string, payload: any, repository: Repository) {
+    if (repository.provider === RepositoryProvider.GITLAB) {
+      const normalized = this.normalizeGitLabEvent(eventType, payload, repository);
+      if (!normalized) return;
+      eventType = normalized.eventType;
+      payload = normalized.payload;
+    } else if (repository.provider === RepositoryProvider.JENKINS) {
+      const normalized = this.normalizeJenkinsEvent(eventType, payload, repository);
+      if (!normalized) return;
+      eventType = normalized.eventType;
+      payload = normalized.payload;
+    }
+
     switch (eventType) {
       case 'workflow_run':
         await this.processWorkflowRun(payload, repository);
@@ -30,6 +42,12 @@ export class WebhookEventProcessorService {
         // 'ping' and other acknowledged events need no domain update.
         return;
     }
+  }
+
+  async processSyncedWorkflowRun(workflowRun: Record<string, unknown>, repository: Repository) {
+    const payload = { workflow_run: workflowRun };
+    await this.processWorkflowRun(payload, repository);
+    await this.notifyWorkflowFailure(payload, repository);
   }
 
   /** Emits once per failed run; the eventKey makes retries and redeliveries idempotent. */
@@ -74,12 +92,7 @@ export class WebhookEventProcessorService {
       throw new Error('workflow_run payload is missing required fields.');
     }
 
-    // run.id arrives as a JS number after JSON.parse. Beyond 2^53 it would already be
-    // rounded, so refuse it rather than store a wrong ID that could collide with another run.
-    if (!Number.isSafeInteger(run.id)) {
-      throw new Error(`workflow_run id ${run.id} exceeds safe integer precision.`);
-    }
-    const externalRunId = BigInt(run.id);
+    const externalRunId = this.parseExternalRunId(run.id, repository.provider);
     const status = mapWorkflowStatus(run.status);
     const conclusion = status === 'COMPLETED' ? mapWorkflowConclusion(run.conclusion) : null;
     const completedAt = status === 'COMPLETED' && run.updated_at ? new Date(run.updated_at) : null;
@@ -133,6 +146,260 @@ export class WebhookEventProcessorService {
     }
   }
 
+  private parseExternalRunId(value: unknown, provider: RepositoryProvider): bigint {
+    if (provider === RepositoryProvider.GITHUB) {
+      if (typeof value !== 'number' || !Number.isSafeInteger(value) || value <= 0) {
+        throw new Error('GitHub workflow_run id exceeds safe integer precision or is invalid.');
+      }
+      return BigInt(value);
+    }
+    if (typeof value === 'number' && !Number.isSafeInteger(value)) {
+      throw new Error('Provider workflow_run id exceeds safe integer precision.');
+    }
+    if ((typeof value !== 'string' && typeof value !== 'number') || !/^\d+$/.test(String(value))) {
+      throw new Error('Provider workflow_run id must be a positive decimal integer.');
+    }
+    const id = BigInt(value);
+    if (id <= 0n || id > 9_223_372_036_854_775_807n) {
+      throw new Error('Provider workflow_run id must be a positive signed 64-bit integer.');
+    }
+    return id;
+  }
+
+  private normalizeGitLabEvent(eventType: string, payload: any, repository: Repository) {
+    const kind = payload?.object_kind;
+    const projectUrl = typeof payload?.project?.web_url === 'string' ? payload.project.web_url : null;
+    if (kind === 'pipeline' || eventType === 'Pipeline Hook') {
+      const pipeline = payload?.object_attributes;
+      if (!pipeline || typeof pipeline !== 'object') {
+        throw new Error('GitLab pipeline hook is missing its object attributes.');
+      }
+      const id = pipeline.id;
+      const branch = pipeline.ref;
+      const sha = pipeline.sha;
+      if (
+        id === undefined ||
+        typeof branch !== 'string' ||
+        !branch ||
+        typeof sha !== 'string' ||
+        !sha
+      ) {
+        throw new Error('GitLab pipeline hook is missing its ID, branch, or commit SHA.');
+      }
+      if (typeof id === 'number' && !Number.isSafeInteger(id)) {
+        throw new Error('GitLab pipeline ID exceeds safe integer precision.');
+      }
+      const state = String(pipeline.status ?? '').toLowerCase();
+      const status =
+        state === 'running'
+          ? 'in_progress'
+          : ['created', 'pending', 'scheduled', 'manual', 'preparing', 'waiting_for_resource'].includes(state)
+            ? 'queued'
+            : 'completed';
+      const conclusion: Record<string, string> = {
+        success: 'success',
+        failed: 'failure',
+        canceled: 'cancelled',
+        skipped: 'skipped',
+      };
+      const runNumber = Number(pipeline.iid ?? id);
+      if (!Number.isSafeInteger(runNumber) || runNumber <= 0 || runNumber > 2_147_483_647) {
+        throw new Error('GitLab pipeline IID is invalid.');
+      }
+      const projectBaseUrl =
+        this.safeHttpsUrl(projectUrl, this.safeHttpsUrl(repository.integrationUrl, 'https://gitlab.com') ?? 'https://gitlab.com') ??
+        'https://gitlab.com';
+      return {
+        eventType: 'workflow_run',
+        payload: {
+          workflow_run: {
+            id: String(id),
+            run_number: runNumber,
+            name: String(payload.project?.name ?? repository.fullName),
+            status,
+            conclusion: status === 'completed' ? (conclusion[state] ?? 'failure') : null,
+            head_branch: branch,
+            head_sha: sha,
+            html_url: this.safeHttpsUrl(
+              pipeline.web_url,
+              `${projectBaseUrl}/-/pipelines/${id}`,
+            ),
+            head_commit: { message: payload.commit?.message ?? null },
+            triggering_actor: { login: payload.user?.username ?? null },
+            run_started_at: pipeline.created_at ?? null,
+            updated_at: pipeline.finished_at ?? pipeline.updated_at ?? null,
+            event: 'pipeline',
+          },
+        },
+      };
+    }
+
+    if (kind === 'deployment' || eventType === 'Deployment Hook') {
+      const deployment = payload?.deployment ?? payload;
+      if (!deployment || typeof deployment !== 'object') {
+        throw new Error('GitLab deployment hook is missing its deployment details.');
+      }
+      const deployable = deployment.deployable ?? payload.deployable ?? {};
+      const environment = deployment.environment ?? payload.environment ?? deployable.environment ?? {};
+      const id =
+        deployment.deployment_id ?? deployment.deploymentId ?? deployment.id ?? deployable.id ?? deployable.deployment_id;
+      const environmentName = typeof environment === 'string' ? environment : environment.name;
+      const sha = deployable.commit?.id ?? deployable.sha ?? deployable.commit_id;
+      if (
+        (typeof id !== 'string' && typeof id !== 'number') ||
+        (typeof id === 'number' && !Number.isSafeInteger(id)) ||
+        typeof environmentName !== 'string' ||
+        !environmentName ||
+        typeof sha !== 'string' ||
+        !sha
+      ) {
+        throw new Error('GitLab deployment hook is missing its ID, environment, or commit SHA.');
+      }
+      const state = String(deployment.status ?? deployment.status_name ?? deployable.status ?? '').toLowerCase();
+      const mappedState =
+        state === 'success' || state === 'succeeded'
+          ? 'success'
+          : state === 'running'
+            ? 'in_progress'
+            : state === 'created'
+              ? 'queued'
+              : state === 'canceled'
+                ? 'inactive'
+                : 'failure';
+      return {
+        eventType: 'deployment_status',
+        payload: {
+          deployment: {
+            id,
+            sha,
+            environment: environmentName,
+            created_at: deployment.created_at ?? deployable.created_at,
+            creator: { login: payload.user?.username ?? null },
+          },
+          deployment_status: {
+            state: mappedState,
+            created_at: deployment.updated_at ?? deployment.created_at ?? deployable.finished_at,
+            description: deployable.name ?? null,
+            environment_url: this.safeHttpsUrl(environment.external_url ?? environment.environment_url, null),
+            target_url: this.safeHttpsUrl(deployable.web_url, null),
+          },
+        },
+      };
+    }
+    return null;
+  }
+
+  private normalizeJenkinsEvent(eventType: string, payload: any, repository: Repository) {
+    if (eventType === 'deployment') {
+      const id = payload?.deployment_id ?? payload?.deploymentId;
+      const environment = payload?.environment;
+      const sha = payload?.git_commit ?? payload?.gitCommit ?? payload?.commit;
+      const rawStatus = String(payload?.deployment_status ?? payload?.deploymentStatus ?? payload?.status ?? '').toUpperCase();
+      if (
+        id === undefined ||
+        (typeof id !== 'string' && typeof id !== 'number') ||
+        typeof environment !== 'string' ||
+        !environment ||
+        typeof sha !== 'string' ||
+        !sha
+      ) {
+        throw new Error('Jenkins deployment event is missing its ID, environment, or commit SHA.');
+      }
+      const status: Record<string, string> = {
+        SUCCESS: 'success',
+        FAILURE: 'failure',
+        FAILED: 'failure',
+        RUNNING: 'in_progress',
+        IN_PROGRESS: 'in_progress',
+        QUEUED: 'queued',
+        ABORTED: 'inactive',
+      };
+      return {
+        eventType: 'deployment_status',
+        payload: {
+          deployment: {
+            id,
+            sha,
+            environment,
+            created_at: payload?.started_at ?? payload?.startedAt ?? payload?.timestamp,
+            creator: { login: payload?.user ?? payload?.userName ?? null },
+          },
+          deployment_status: {
+            state: status[rawStatus] ?? 'failure',
+            created_at: payload?.completed_at ?? payload?.completedAt ?? payload?.timestamp,
+            description: payload?.description ?? null,
+            environment_url: this.safeHttpsUrl(
+              payload?.deployment_url ??
+                payload?.deploymentUrl ??
+                payload?.environment_url ??
+                payload?.environmentUrl,
+              null,
+            ),
+            target_url: this.safeHttpsUrl(payload?.build_url ?? payload?.buildUrl ?? payload?.url, null),
+          },
+        },
+      };
+    }
+    if (eventType !== 'build') return null;
+    const id = payload?.build_number ?? payload?.buildNumber ?? payload?.number;
+    const statusValue = String(payload?.build_status ?? payload?.buildStatus ?? payload?.result ?? '').toUpperCase();
+    const buildUrl = payload?.build_url ?? payload?.buildUrl ?? payload?.url;
+    const sha = payload?.git_commit ?? payload?.gitCommit ?? payload?.commit ?? payload?.GIT_COMMIT;
+    if (id === undefined || typeof buildUrl !== 'string' || !buildUrl || typeof sha !== 'string' || !sha) {
+      throw new Error('Jenkins build event is missing its number, URL, or commit SHA.');
+    }
+    const runNumber = Number(id);
+    if (!Number.isSafeInteger(runNumber) || runNumber <= 0 || runNumber > 2_147_483_647) {
+      throw new Error('Jenkins build number is invalid.');
+    }
+    const building = payload?.building === true || ['BUILDING', 'IN_PROGRESS', 'RUNNING'].includes(statusValue);
+    const status = building ? 'in_progress' : 'completed';
+    const conclusion =
+      statusValue === 'SUCCESS'
+        ? 'success'
+        : statusValue === 'ABORTED'
+          ? 'cancelled'
+          : status === 'completed'
+            ? 'failure'
+            : null;
+    const toIso = (value: unknown): string | null => {
+      if (typeof value !== 'string' && typeof value !== 'number') return null;
+      const date = new Date(typeof value === 'number' ? value : value);
+      return Number.isNaN(date.getTime()) ? null : date.toISOString();
+    };
+    return {
+      eventType: 'workflow_run',
+      payload: {
+        workflow_run: {
+          id: String(id),
+          run_number: runNumber,
+          name: String(payload?.job_name ?? payload?.jobName ?? repository.fullName),
+          status,
+          conclusion,
+          head_branch: payload?.git_branch ?? payload?.gitBranch ?? 'unknown',
+          head_sha: String(sha),
+          html_url: this.safeHttpsUrl(buildUrl, `${repository.integrationUrl ?? 'https://jenkins.invalid'}/`),
+          head_commit: { message: payload?.commit_message ?? payload?.commitMessage ?? null },
+          triggering_actor: { login: payload?.user ?? payload?.userName ?? null },
+          run_started_at: toIso(payload?.timestamp ?? payload?.started_at ?? payload?.startedAt),
+          updated_at:
+            status === 'completed' ? toIso(payload?.completed_at ?? payload?.completedAt ?? payload?.timestamp) : null,
+          event: 'jenkins',
+        },
+      },
+    };
+  }
+
+  private safeHttpsUrl(value: unknown, fallback: string | null): string | null {
+    if (typeof value !== 'string') return fallback;
+    try {
+      const url = new URL(value);
+      return url.protocol === 'https:' && !url.username && !url.password ? url.toString() : fallback;
+    } catch {
+      return fallback;
+    }
+  }
+
   private async processDeploymentStatus(payload: any, repository: Repository) {
     const deployment = payload?.deployment;
     const deploymentStatus = payload?.deployment_status;
@@ -164,9 +431,11 @@ export class WebhookEventProcessorService {
           commitSha: deployment.sha,
           triggeredBy: deployment.creator?.login ?? null,
           externalUrl: deploymentStatus.environment_url ?? deploymentStatus.target_url ?? null,
-          errorSummary: status === 'FAILURE' ? deploymentStatus.description?.slice(0, 500) ?? null : null,
+          errorSummary: status === 'FAILURE' ? (deploymentStatus.description?.slice(0, 500) ?? null) : null,
           startedAt: deployment.created_at ? new Date(deployment.created_at) : new Date(),
-          completedAt: TERMINAL_DEPLOYMENT.includes(status) ? new Date(deploymentStatus.created_at ?? Date.now()) : null,
+          completedAt: TERMINAL_DEPLOYMENT.includes(status)
+            ? new Date(deploymentStatus.created_at ?? Date.now())
+            : null,
         },
       });
       return;
