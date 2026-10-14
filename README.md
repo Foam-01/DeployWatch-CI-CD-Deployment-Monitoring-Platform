@@ -20,6 +20,8 @@ Instead of mock charts, DeployWatch implements real-world infrastructure pattern
 - **Modern Responsive UI**: Next.js 14 App Router with the Light Engineering design system, responsive layouts, loading, empty, and error states.
 
 See [architecture and data model](./docs/architecture.md), [architecture decision record](./docs/adr/0001-modular-api-worker.md), and the [demo walkthrough](./docs/demo.md).
+For the opt-in dashboard API latency benchmark and its fixed test workload, see
+[docs/performance.md](./docs/performance.md).
 
 ---
 

@@ -24,6 +24,7 @@
     "db:generate": "npx prisma generate",
     "test:integration": "jest --selectProjects integration --runInBand",
     "test:all": "jest --runInBand",
+    "benchmark:dashboard": "ts-node -r tsconfig-paths/register scripts/dashboard-performance.ts",
     "start:worker": "node dist/worker",
     "dev:worker": "nest start --watch --entryFile worker",
     "secrets:encrypt": "ts-node scripts/encrypt-secrets.ts"
