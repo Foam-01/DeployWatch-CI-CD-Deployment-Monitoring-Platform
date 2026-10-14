@@ -44,8 +44,8 @@ See [architecture and data model](./docs/architecture.md), [architecture decisio
 ### 2. Environment Setup
 ```bash
 # Clone the repository
-git clone https://github.com/your-username/deploywatch.git
-cd deploywatch
+git clone https://github.com/Foam-01/DeployWatch-CI-CD-Deployment-Monitoring-Platform.git
+cd DeployWatch-CI-CD-Deployment-Monitoring-Platform
 
 # Copy environment variables
 cp .env.example .env
