@@ -17,7 +17,7 @@ import { Public } from '../common/decorators/roles.decorator';
 import { InvalidWebhookSignatureError, WebhooksService } from './webhooks.service';
 
 @ApiTags('webhooks')
-@SkipThrottle()
+@SkipThrottle({ short: true, medium: true, long: true })
 @Controller('webhooks')
 export class WebhooksController {
   constructor(private readonly webhooksService: WebhooksService) {}
