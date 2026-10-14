@@ -13,6 +13,7 @@ Instead of mock charts, DeployWatch implements real-world infrastructure pattern
 - **Automated Health Checking & Flapping Prevention**: Configurable synthetic probes with failure/recovery thresholds (e.g., 3 consecutive failures before alerting) to eliminate transient alert flapping.
 - **Project Alert Rules**: Owners/admins can override the service-down failure threshold for every service in a project; per-service thresholds remain the fallback.
 - **Delivery Analytics**: Organization-scoped daily workflow-run and deployment trends for the last 7 or 30 days.
+- **CSV Exports**: Download organization-scoped workflow-run and incident reports; current filters are applied, spreadsheet formulas are neutralized, and exports are capped at 10,000 rows.
 - **Incident Lifecycle Management**: Opens incidents after sustained downtime, notifies configured channels, and records an incident timeline. Recovery updates service state; operators resolve incidents explicitly.
 - **Notification Center**: Per-user in-app notifications and configurable Slack/webhook channels with delivery history and retries.
 - **Modern Responsive UI**: Next.js 14 App Router with the Light Engineering design system, responsive layouts, loading, empty, and error states.

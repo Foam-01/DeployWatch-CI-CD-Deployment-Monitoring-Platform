@@ -1,7 +1,9 @@
-import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
-import { IncidentEventType, IncidentStatus } from '@prisma/client';
+import { Injectable, NotFoundException, ConflictException, PayloadTooLargeException } from '@nestjs/common';
+import { IncidentEventType, IncidentSeverity, IncidentStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { NotifierService } from '../notifications/notifier.service';
+import { CSV_EXPORT_MAX_ROWS, toCsv } from '../common/utils/csv';
+import { IncidentExportQueryDto } from './dto/incident-export-query.dto';
 
 @Injectable()
 export class IncidentsService {
@@ -10,11 +12,12 @@ export class IncidentsService {
     private readonly notifier: NotifierService,
   ) {}
 
-  async findAll(organizationId: string, status?: string) {
-    const where: any = {
+  async findAll(organizationId: string, status?: IncidentStatus, severity?: IncidentSeverity) {
+    const where: Prisma.IncidentWhereInput = {
       service: { project: { organizationId } },
     };
     if (status) where.status = status;
+    if (severity) where.severity = severity;
 
     const incidents = await this.prisma.incident.findMany({
       where,
@@ -31,12 +34,56 @@ export class IncidentsService {
     return { data: incidents };
   }
 
+  async exportCsv(organizationId: string, query: IncidentExportQueryDto): Promise<string> {
+    const where: Prisma.IncidentWhereInput = {
+      service: { project: { organizationId } },
+      ...(query.status && { status: query.status }),
+      ...(query.severity && { severity: query.severity }),
+    };
+    const incidents = await this.prisma.incident.findMany({
+      where,
+      take: CSV_EXPORT_MAX_ROWS + 1,
+      orderBy: { openedAt: 'desc' },
+      include: {
+        service: {
+          select: { name: true, project: { select: { name: true } } },
+        },
+      },
+    });
+
+    if (incidents.length > CSV_EXPORT_MAX_ROWS) {
+      throw new PayloadTooLargeException(
+        `CSV export is limited to ${CSV_EXPORT_MAX_ROWS} rows. Apply filters and try again.`,
+      );
+    }
+
+    return toCsv(
+      ['id', 'title', 'description', 'status', 'severity', 'project', 'service', 'opened_at', 'resolved_at'],
+      incidents.map((incident) => [
+        incident.id,
+        incident.title,
+        incident.description,
+        incident.status,
+        incident.severity,
+        incident.service?.project.name,
+        incident.service?.name,
+        incident.openedAt.toISOString(),
+        incident.resolvedAt?.toISOString(),
+      ]),
+    );
+  }
+
   async findOne(id: string, organizationId: string) {
     const incident = await this.prisma.incident.findFirst({
       where: { id, service: { project: { organizationId } } },
       include: {
         service: {
-          select: { id: true, name: true, healthUrl: true, project: { select: { id: true, name: true } } },
+          select: {
+            id: true,
+            name: true,
+            healthUrl: true,
+            project: { select: { id: true, name: true } },
+          },
         },
         events: {
           include: { actorUser: { select: { name: true, email: true } } },
@@ -76,7 +123,10 @@ export class IncidentsService {
     const incident = await this.prisma.$transaction(async (tx) => {
       const updated = await tx.incident.update({
         where: { id },
-        data: { status, ...(status === 'RESOLVED' && { resolvedAt: new Date() }) },
+        data: {
+          status,
+          ...(status === 'RESOLVED' && { resolvedAt: new Date() }),
+        },
       });
       await tx.incidentEvent.create({
         data: { incidentId: id, eventType, message, actorUserId: userId },

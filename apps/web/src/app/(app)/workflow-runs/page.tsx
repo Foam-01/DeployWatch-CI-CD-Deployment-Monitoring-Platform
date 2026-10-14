@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { useState } from 'react';
 import { ProjectSelect } from '@/components/project-select';
 import {
   CursorPager,
@@ -12,7 +13,7 @@ import {
   RunStatusBadge,
   TimeAgo,
 } from '@/components/ui';
-import { qs } from '@/lib/api';
+import { ApiError, downloadFile, qs } from '@/lib/api';
 import { formatDuration, shortSha } from '@/lib/format';
 import { useApi } from '@/lib/use-api';
 import { useUrlFilters } from '@/lib/use-url-filters';
@@ -25,11 +26,38 @@ export default function WorkflowRunsPage() {
   const { data, pagination, error, loading, reload } = useApi<WorkflowRun[]>(
     `/workflow-runs${qs({ ...filters, cursor, limit: 20 })}`,
   );
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
   const hasFilters = Object.values(filters).some(Boolean);
+
+  async function exportRuns() {
+    setExporting(true);
+    setExportError(null);
+    try {
+      await downloadFile(`/workflow-runs/export.csv${qs(filters)}`, 'workflow-runs.csv');
+    } catch (cause) {
+      setExportError(cause instanceof ApiError ? cause.message : 'Could not export workflow runs.');
+    } finally {
+      setExporting(false);
+    }
+  }
 
   return (
     <>
-      <PageHeader title="Workflow runs" description="GitHub Actions runs received via webhook." />
+      <PageHeader
+        title="Workflow runs"
+        description="GitHub Actions runs received via webhook."
+        actions={
+          <button className="btn btn-ghost" type="button" onClick={exportRuns} disabled={exporting}>
+            {exporting ? 'Exporting…' : 'Export CSV'}
+          </button>
+        }
+      />
+      {exportError && (
+        <div className="state state-error" role="alert">
+          <p className="state-title">{exportError}</p>
+        </div>
+      )}
 
       <div className="toolbar" role="search">
         <ProjectSelect value={filters.projectId} onChange={(v) => setFilter('projectId', v)} />

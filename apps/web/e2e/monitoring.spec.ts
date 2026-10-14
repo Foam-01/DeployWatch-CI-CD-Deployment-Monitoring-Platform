@@ -46,6 +46,10 @@ test.describe('Monitoring flows (admin)', () => {
     await page.reload();
     await expect(page.getByLabel('Conclusion')).toHaveValue('FAILURE');
     await expect(page.getByRole('row')).toHaveCount(2);
+
+    const downloadPromise = page.waitForEvent('download');
+    await page.getByRole('button', { name: 'Export CSV' }).click();
+    expect((await downloadPromise).suggestedFilename()).toBe('workflow-runs.csv');
   });
 
   test('admin creates a project and sees it in the list', async ({ page }) => {
@@ -82,9 +86,21 @@ test.describe('Monitoring flows (admin)', () => {
   test('incident detail shows the timeline', async ({ page }) => {
     await page.goto('/incidents');
     await page.getByRole('link', { name: /Payment Authorization API/ }).click();
-    const timeline = page.locator('section', { has: page.getByRole('heading', { name: 'Timeline' }) });
+    const timeline = page.locator('section', {
+      has: page.getByRole('heading', { name: 'Timeline' }),
+    });
     await expect(timeline.getByText('OPENED')).toBeVisible();
     await expect(timeline.getByText(/auto-detected outage/)).toBeVisible();
+  });
+
+  test('incident list exports the active filters as CSV', async ({ page }) => {
+    await page.goto('/incidents');
+    await page.getByLabel('Status').selectOption('OPEN');
+    await page.getByLabel('Severity').selectOption('HIGH');
+
+    const downloadPromise = page.waitForEvent('download');
+    await page.getByRole('button', { name: 'Export CSV' }).click();
+    expect((await downloadPromise).suggestedFilename()).toBe('incidents.csv');
   });
 
   test('unknown IDs show a not-found state instead of crashing', async ({ page }) => {

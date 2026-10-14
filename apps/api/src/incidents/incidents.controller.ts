@@ -1,10 +1,13 @@
-import { Controller, Get, Post, Param, Query, Body, UseGuards, ParseUUIDPipe } from '@nestjs/common';
+import { Controller, Get, Post, Param, Query, Body, UseGuards, ParseUUIDPipe, Res } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
+import { IncidentSeverity, IncidentStatus } from '@prisma/client';
+import { Response } from 'express';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { OrgGuard } from '../common/guards/org.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { assertWritableRole } from '../common/utils/assert-writable-role';
 import { IncidentsService } from './incidents.service';
+import { IncidentExportQueryDto } from './dto/incident-export-query.dto';
 
 @ApiTags('incidents')
 @ApiBearerAuth()
@@ -17,17 +20,26 @@ export class IncidentsController {
   @ApiOperation({ summary: 'List incidents' })
   findAll(
     @CurrentUser('organizationId') organizationId: string,
-    @Query('status') status?: string,
+    @Query('status') status?: IncidentStatus,
+    @Query('severity') severity?: IncidentSeverity,
   ) {
-    return this.incidentsService.findAll(organizationId, status);
+    return this.incidentsService.findAll(organizationId, status, severity);
+  }
+
+  @Get('export.csv')
+  @ApiOperation({ summary: 'Export incidents as CSV' })
+  async exportCsv(
+    @CurrentUser('organizationId') organizationId: string,
+    @Query() query: IncidentExportQueryDto,
+    @Res() response: Response,
+  ) {
+    const csv = await this.incidentsService.exportCsv(organizationId, query);
+    response.status(200).type('text/csv').set('Content-Disposition', 'attachment; filename="incidents.csv"').send(csv);
   }
 
   @Get(':id')
   @ApiOperation({ summary: 'Get incident details' })
-  findOne(
-    @Param('id', ParseUUIDPipe) id: string,
-    @CurrentUser('organizationId') organizationId: string,
-  ) {
+  findOne(@Param('id', ParseUUIDPipe) id: string, @CurrentUser('organizationId') organizationId: string) {
     return this.incidentsService.findOne(id, organizationId);
   }
 
@@ -58,10 +70,7 @@ export class IncidentsController {
 
   @Get(':id/events')
   @ApiOperation({ summary: 'Get incident event timeline' })
-  getEvents(
-    @Param('id', ParseUUIDPipe) id: string,
-    @CurrentUser('organizationId') organizationId: string,
-  ) {
+  getEvents(@Param('id', ParseUUIDPipe) id: string, @CurrentUser('organizationId') organizationId: string) {
     return this.incidentsService.getEvents(id, organizationId);
   }
 }

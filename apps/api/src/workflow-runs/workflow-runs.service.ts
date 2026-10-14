@@ -1,6 +1,9 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, PayloadTooLargeException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { parseLimit } from '../common/utils/pagination';
+import { CSV_EXPORT_MAX_ROWS, toCsv } from '../common/utils/csv';
+import { WorkflowRunExportQueryDto } from './dto/workflow-run-export-query.dto';
 
 @Injectable()
 export class WorkflowRunsService {
@@ -26,7 +29,10 @@ export class WorkflowRunsService {
       orderBy: { createdAt: 'desc' },
       include: {
         repository: {
-          select: { fullName: true, project: { select: { id: true, name: true } } },
+          select: {
+            fullName: true,
+            project: { select: { id: true, name: true } },
+          },
         },
       },
     });
@@ -60,7 +66,10 @@ export class WorkflowRunsService {
       where: { id, repository: { project: { organizationId } } },
       include: {
         repository: {
-          select: { fullName: true, project: { select: { id: true, name: true } } },
+          select: {
+            fullName: true,
+            project: { select: { id: true, name: true } },
+          },
         },
         deployments: true,
       },
@@ -79,5 +88,76 @@ export class WorkflowRunsService {
 
   async findByProject(projectId: string, organizationId: string, query: any) {
     return this.findAll(organizationId, { ...query, projectId });
+  }
+
+  async exportCsv(organizationId: string, query: WorkflowRunExportQueryDto): Promise<string> {
+    const where: Prisma.WorkflowRunWhereInput = {
+      repository: { project: { organizationId } },
+    };
+
+    if (query.projectId) {
+      where.repository = { project: { organizationId, id: query.projectId } };
+    }
+    if (query.status) where.status = query.status;
+    if (query.conclusion) where.conclusion = query.conclusion;
+    if (query.branch !== undefined) where.branch = query.branch;
+
+    const runs = await this.prisma.workflowRun.findMany({
+      where,
+      take: CSV_EXPORT_MAX_ROWS + 1,
+      orderBy: { createdAt: 'desc' },
+      include: {
+        repository: {
+          select: { fullName: true, project: { select: { name: true } } },
+        },
+      },
+    });
+
+    if (runs.length > CSV_EXPORT_MAX_ROWS) {
+      throw new PayloadTooLargeException(
+        `CSV export is limited to ${CSV_EXPORT_MAX_ROWS} rows. Apply filters and try again.`,
+      );
+    }
+
+    return toCsv(
+      [
+        'id',
+        'project',
+        'repository',
+        'workflow',
+        'run_number',
+        'status',
+        'conclusion',
+        'branch',
+        'commit_sha',
+        'commit_message',
+        'event',
+        'triggered_by',
+        'duration_seconds',
+        'started_at',
+        'completed_at',
+        'url',
+      ],
+      runs.map((run) => [
+        run.id,
+        run.repository.project.name,
+        run.repository.fullName,
+        run.workflowName,
+        run.runNumber,
+        run.status,
+        run.conclusion,
+        run.branch,
+        run.commitSha,
+        run.commitMessage,
+        run.eventType,
+        run.triggeredBy,
+        run.startedAt && run.completedAt
+          ? Math.round((run.completedAt.getTime() - run.startedAt.getTime()) / 1000)
+          : null,
+        run.startedAt?.toISOString(),
+        run.completedAt?.toISOString(),
+        run.htmlUrl,
+      ]),
+    );
   }
 }

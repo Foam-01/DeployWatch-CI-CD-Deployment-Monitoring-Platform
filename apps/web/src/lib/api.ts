@@ -35,7 +35,10 @@ async function parseError(res: Response): Promise<ApiError> {
 export function refreshSession(): Promise<boolean> {
   refreshInFlight ??= (async () => {
     try {
-      const res = await fetch(`${API_BASE}/auth/refresh`, { method: 'POST', credentials: 'include' });
+      const res = await fetch(`${API_BASE}/auth/refresh`, {
+        method: 'POST',
+        credentials: 'include',
+      });
       if (!res.ok) return false;
       const body = await res.json();
       setAccessToken(body.data.accessToken);
@@ -49,37 +52,58 @@ export function refreshSession(): Promise<boolean> {
   return refreshInFlight;
 }
 
-export async function apiRequest<T>(
-  path: string,
-  init: RequestInit = {},
-  retry = true,
-): Promise<ApiEnvelope<T>> {
+async function fetchWithAuth(path: string, init: RequestInit = {}, retry = true): Promise<Response> {
   const headers = new Headers(init.headers);
   if (init.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
   if (accessToken) headers.set('Authorization', `Bearer ${accessToken}`);
 
   let res: Response;
   try {
-    res = await fetch(`${API_BASE}${path}`, { ...init, headers, credentials: 'include' });
+    res = await fetch(`${API_BASE}${path}`, {
+      ...init,
+      headers,
+      credentials: 'include',
+    });
   } catch {
     throw new ApiError(0, 'NETWORK_ERROR', 'Cannot reach the API server. Is it running?');
   }
 
   if (res.status === 401 && retry && !path.startsWith('/auth/')) {
-    if (await refreshSession()) return apiRequest<T>(path, init, false);
+    if (await refreshSession()) return fetchWithAuth(path, init, false);
   }
+  return res;
+}
+
+export async function apiRequest<T>(path: string, init: RequestInit = {}, retry = true): Promise<ApiEnvelope<T>> {
+  const res = await fetchWithAuth(path, init, retry);
   if (!res.ok) throw await parseError(res);
   return res.json();
+}
+
+/** Downloads an authenticated response, retrying once after refreshing an expired access token. */
+export async function downloadFile(path: string, filename: string): Promise<void> {
+  const res = await fetchWithAuth(path);
+  if (!res.ok) throw await parseError(res);
+
+  const objectUrl = URL.createObjectURL(await res.blob());
+  const anchor = document.createElement('a');
+  anchor.href = objectUrl;
+  anchor.download = filename;
+  document.body.append(anchor);
+  anchor.click();
+  anchor.remove();
+  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1_000);
 }
 
 export const api = {
   get: <T>(path: string) => apiRequest<T>(path),
   post: <T>(path: string, body?: unknown) =>
-    apiRequest<T>(path, { method: 'POST', body: body === undefined ? undefined : JSON.stringify(body) }),
-  patch: <T>(path: string, body: unknown) =>
-    apiRequest<T>(path, { method: 'PATCH', body: JSON.stringify(body) }),
-  put: <T>(path: string, body: unknown) =>
-    apiRequest<T>(path, { method: 'PUT', body: JSON.stringify(body) }),
+    apiRequest<T>(path, {
+      method: 'POST',
+      body: body === undefined ? undefined : JSON.stringify(body),
+    }),
+  patch: <T>(path: string, body: unknown) => apiRequest<T>(path, { method: 'PATCH', body: JSON.stringify(body) }),
+  put: <T>(path: string, body: unknown) => apiRequest<T>(path, { method: 'PUT', body: JSON.stringify(body) }),
   delete: <T>(path: string) => apiRequest<T>(path, { method: 'DELETE' }),
 };
 
