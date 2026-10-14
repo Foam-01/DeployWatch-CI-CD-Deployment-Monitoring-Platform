@@ -37,5 +37,7 @@ COPY package.json package-lock.json ./
 COPY --from=builder /app/apps/api/dist ./apps/api/dist
 COPY --from=builder /app/apps/api/prisma ./apps/api/prisma
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
+# Run as the unprivileged user shipped with the node image (spec 13.4: non-root).
+USER node
 EXPOSE 4000
 CMD ["npm", "run", "start:prod", "-w", "apps/api"]

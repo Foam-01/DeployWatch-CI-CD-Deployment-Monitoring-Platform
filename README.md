@@ -1,6 +1,10 @@
-# DeployWatch — Production CI/CD & Deployment Monitoring Platform
+# DeployWatch — CI/CD & Deployment Monitoring Platform
 
-> Production-oriented CI/CD and deployment monitoring platform.
+> A production-oriented portfolio project: one dashboard for GitHub Actions runs,
+> deployments, service health, incidents and notifications.
+
+**Status:** feature-complete for the portfolio scope · 258 API tests + 32 E2E tests passing locally ·
+Docker Compose stack and backup/restore verified (see [Verification](#-verification)).
 
 ---
 
@@ -19,9 +23,20 @@ Instead of mock charts, DeployWatch implements real-world infrastructure pattern
 - **Notification Center**: Per-user in-app notifications and configurable Slack/webhook channels with delivery history and retries.
 - **Modern Responsive UI**: Next.js 14 App Router with the Light Engineering design system, responsive layouts, loading, empty, and error states.
 
-See [provider integration setup](./docs/provider-integrations.md), [architecture and data model](./docs/architecture.md), [architecture decision record](./docs/adr/0001-modular-api-worker.md), and the [demo walkthrough](./docs/demo.md).
-For the opt-in dashboard API latency benchmark and its fixed test workload, see
-[docs/performance.md](./docs/performance.md).
+### Documentation
+
+| Topic | Document |
+|---|---|
+| Architecture | [docs/architecture.md](./docs/architecture.md) |
+| Database & ER diagram | [docs/database.md](./docs/database.md) |
+| Security controls | [docs/security.md](./docs/security.md) |
+| Testing strategy & evidence | [docs/testing.md](./docs/testing.md) |
+| Operations, backup & restore | [docs/operations.md](./docs/operations.md) |
+| Provider setup (GitHub, GitLab, Jenkins) | [docs/provider-integrations.md](./docs/provider-integrations.md) |
+| Demo walkthrough | [docs/demo.md](./docs/demo.md) |
+| Performance benchmark | [docs/performance.md](./docs/performance.md) |
+| API reference | Swagger UI at `/api/docs` when the API runs outside production |
+| Decisions | [ADR 0001](./docs/adr/0001-modular-api-worker.md) modular API + worker · [ADR 0002](./docs/adr/0002-database-backed-webhook-inbox.md) webhook inbox · [ADR 0003](./docs/adr/0003-auth-tokens-and-tenancy.md) auth & tenancy · [ADR 0004](./docs/adr/0004-ssrf-safe-outbound-http.md) SSRF |
 
 ---
 
@@ -144,6 +159,24 @@ npm run dev
 ### 2. Anti-Flap Synthetic Probes
 - Rather than alerting on a single 500 error or network blip, the scheduler requires `failure_threshold` consecutive failures before opening an incident.
 - When the service recovers, it requires `success_threshold` consecutive passing checks before restoring the service status. The incident remains open until an operator resolves it.
+
+---
+
+## ✅ Verification
+
+What has actually been run, so claims here can be checked:
+
+| Check | Result | How to reproduce |
+|---|---|---|
+| Lint, type check, build | pass | `npm run lint && npm run typecheck && npm run build` |
+| API unit + integration (real PostgreSQL) | 23 suites, 258 tests pass | `npm run test:db:up && npm run test && npm run test:integration` |
+| End-to-end (Playwright, desktop + mobile) | 32 tests pass | `npm run test:e2e` |
+| `docker compose up --build` | postgres, api, web healthy; migrations applied; worker running; login OK | Quick Start step 3 |
+| Backup → simulated data loss → restore | data restored, login OK | [docs/operations.md](./docs/operations.md#restore-test-performed-2026-10-14-docker-compose-dev-stack-seeded-demo-data) |
+| CI | runs all of the above on every push | [.github/workflows/ci.yml](./.github/workflows/ci.yml) |
+
+Not done: external security audit, load testing beyond the
+[dashboard benchmark](./docs/performance.md), staging/production hosting.
 
 ---
 
