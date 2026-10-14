@@ -12,3 +12,11 @@ for (const path of ['/dashboard', '/workflow-runs', '/incidents', '/settings/mem
     await page.screenshot({ path: `test-results/screens/${info.project.name}${path.replace(/\//g, '_')}.png`, fullPage: true });
   });
 }
+
+test('capture notification panel', async ({ page }, info) => {
+  await page.goto('/dashboard');
+  await settled(page);
+  await page.locator('button.bell').click();
+  await page.getByRole('dialog', { name: 'Notifications' }).getByRole('button').nth(1).waitFor();
+  await page.screenshot({ path: `test-results/screens/${info.project.name}_bell-panel.png` });
+});

@@ -1278,6 +1278,150 @@ summary {
   }
 }
 
+/* ── Notification panel (native popover) ──────────────── */
+
+.bell {
+  border: none;
+  background: none;
+  font: inherit;
+}
+.bell[aria-expanded='true'] {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.notification-panel {
+  /* Popovers render in the top layer; top/right are set from the bell on open. */
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  width: min(400px, calc(100vw - 16px));
+  max-height: min(560px, calc(100vh - 80px));
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 12px 32px rgba(24, 24, 27, 0.16);
+  overflow: hidden;
+  flex-direction: column;
+}
+.notification-panel:popover-open {
+  display: flex;
+}
+@starting-style {
+  .notification-panel:popover-open {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+.notification-panel {
+  transition:
+    opacity 0.12s ease-out,
+    transform 0.12s ease-out,
+    overlay 0.12s allow-discrete,
+    display 0.12s allow-discrete;
+}
+
+.notification-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px 10px 16px;
+  border-bottom: 1px solid var(--line);
+}
+.notification-panel-head .btn {
+  margin-left: auto;
+}
+
+.notification-panel-body {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  flex: 1;
+}
+
+.panel-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 32px 16px;
+  text-align: center;
+}
+
+.panel-list {
+  list-style: none;
+}
+.panel-item {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2px 12px;
+  width: 100%;
+  padding: 10px 28px 10px 16px;
+  border: none;
+  border-top: 1px solid var(--line);
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+}
+.panel-list li:first-child .panel-item {
+  border-top: none;
+}
+.panel-item:hover,
+.panel-item:focus-visible {
+  background: var(--hover);
+}
+.panel-item .badge {
+  grid-column: 1;
+}
+.panel-item > .muted.small:last-of-type {
+  grid-column: 2;
+  grid-row: 1;
+  white-space: nowrap;
+}
+.panel-item-title,
+.panel-item-body {
+  grid-column: 1 / -1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.panel-item-title {
+  font-weight: 500;
+}
+.panel-item:not(.unread) .panel-item-title {
+  font-weight: 400;
+  color: var(--text-2);
+}
+.panel-item .unread-dot {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.notification-panel-foot {
+  display: block;
+  padding: 10px 16px;
+  border-top: 1px solid var(--line);
+  text-align: center;
+  font-weight: 500;
+  color: var(--accent);
+  background: var(--surface-sunken);
+}
+.notification-panel-foot:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .notification-panel {
+    transition: none;
+  }
+}
+
 /* ── States ────────────────────────────────────────────── */
 
 .state {

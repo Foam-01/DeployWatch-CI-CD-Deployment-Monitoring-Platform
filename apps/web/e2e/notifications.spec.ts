@@ -5,21 +5,36 @@ test.describe('In-app notifications', () => {
   // Viewer has the seeded unread notifications to itself in this spec (read state is per user).
   test.use({ storageState: VIEWER_STATE });
 
-  test('bell shows unread count; opening one marks it read and follows its link', async ({ page }) => {
+  test('bell opens a panel in place; opening an item marks it read and follows its link', async ({ page }) => {
     await page.goto('/dashboard');
-    const bell = page.locator('a.bell');
+    const bell = page.locator('button.bell');
     await expect(bell).toHaveAttribute('aria-label', /^Notifications, \d+ unread$/);
-    await expect(bell).toBeVisible();
     const before = Number((await bell.getAttribute('aria-label'))!.match(/(\d+) unread/)![1]);
 
+    // Opens over the current page instead of navigating.
     await bell.click();
-    await expect(page.getByRole('heading', { name: 'Notifications' })).toBeVisible();
-    await settled(page);
+    const panel = page.getByRole('dialog', { name: 'Notifications' });
+    await expect(panel).toBeVisible();
+    await expect(page).toHaveURL(/\/dashboard$/);
+    await expect(bell).toHaveAttribute('aria-expanded', 'true');
 
-    await page.getByRole('button', { name: /CI \/ Jest & Playwright #143 failed/ }).click();
+    // Escape closes it (native popover light dismiss).
+    await page.keyboard.press('Escape');
+    await expect(panel).toBeHidden();
+
+    await bell.click();
+    await panel.getByRole('button', { name: /CI \/ Jest & Playwright #143 failed/ }).click();
     await expect(page).toHaveURL(/\/workflow-runs\/[0-9a-f-]{36}$/);
+    await expect(panel).toBeHidden();
+    await expect(bell).toHaveAttribute('aria-label', before - 1 > 0 ? `Notifications, ${before - 1} unread` : 'Notifications');
+  });
 
-    await expect(page.locator('a.bell')).toHaveAttribute('aria-label', before - 1 > 0 ? `Notifications, ${before - 1} unread` : 'Notifications');
+  test('panel links to the full notifications page', async ({ page }) => {
+    await page.goto('/dashboard');
+    await page.locator('button.bell').click();
+    await page.getByRole('dialog', { name: 'Notifications' }).getByRole('link', { name: 'View all notifications' }).click();
+    await expect(page).toHaveURL(/\/notifications$/);
+    await expect(page.getByRole('heading', { name: 'Notifications', level: 1 })).toBeVisible();
   });
 
   test('unread filter and mark all as read', async ({ page }) => {
@@ -27,7 +42,7 @@ test.describe('In-app notifications', () => {
     await settled(page);
     await page.getByRole('button', { name: 'Mark all as read' }).click();
     await expect(page.getByText('You are all caught up')).toBeVisible();
-    await expect(page.locator('a.bell')).toHaveAttribute('aria-label', 'Notifications');
+    await expect(page.locator('button.bell')).toHaveAttribute('aria-label', 'Notifications');
 
     await page.getByRole('tab', { name: 'All' }).click();
     await expect(page.getByRole('button', { name: /Payment Authorization API/ })).toBeVisible();

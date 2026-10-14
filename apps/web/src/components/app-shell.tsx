@@ -6,7 +6,6 @@ import { useEffect, useRef, useState } from 'react';
 import {
   Activity,
   AlertTriangle,
-  Bell,
   BellRing,
   FolderGit2,
   LayoutDashboard,
@@ -21,7 +20,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { useAuth } from '@/lib/auth-context';
-import { useApi } from '@/lib/use-api';
+import { NotificationBell } from './notification-bell';
 
 const NAV = [
   { href: '/dashboard', label: 'Overview', icon: LayoutDashboard },
@@ -165,41 +164,6 @@ function NavLink({
     >
       <Icon size={16} aria-hidden />
       {label}
-    </Link>
-  );
-}
-
-const BELL_POLL_MS = 30_000;
-
-/** Unread count, refreshed every 30s while the tab is visible and on every navigation. */
-function NotificationBell() {
-  const pathname = usePathname();
-  const { data, reload } = useApi<{ count: number }>('/notifications/unread-count');
-
-  useEffect(() => {
-    reload();
-  }, [pathname, reload]);
-
-  useEffect(() => {
-    const onNotificationsRead = () => reload();
-    window.addEventListener('deploywatch:notifications-read', onNotificationsRead);
-    return () => window.removeEventListener('deploywatch:notifications-read', onNotificationsRead);
-  }, [reload]);
-
-  useEffect(() => {
-    const id = setInterval(() => document.visibilityState === 'visible' && reload(), BELL_POLL_MS);
-    return () => clearInterval(id);
-  }, [reload]);
-
-  const count = data?.count ?? 0;
-  return (
-    <Link
-      href="/notifications"
-      className="icon-btn bell"
-      aria-label={count ? `Notifications, ${count} unread` : 'Notifications'}
-    >
-      <Bell size={18} aria-hidden />
-      {count > 0 && <span className="bell-count">{count > 99 ? '99+' : count}</span>}
     </Link>
   );
 }
